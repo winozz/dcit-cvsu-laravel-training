@@ -8,3 +8,4 @@ Route::get('/', function () {
 })->name('home');
 
 Route::get('/guess', [GameController::class, 'show'])->name('guess');
+Route::put('/guess', [GameController::class, 'update'])->name('guess.put');

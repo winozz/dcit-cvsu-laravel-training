@@ -58,6 +58,8 @@ final class ChallengeGameConstants
     public const SESSION_CATEGORY = 'category';
     public const SESSION_CORRECT = 'correct';
     public const SESSION_WRONG = 'wrong';
+    public const SESSION_USED_WORDS = 'used_words';
+    public const SESSION_FOUND_WORDS = 'found_words';
 
     public const SESSION_KEYS = [
         self::SESSION_WORD,

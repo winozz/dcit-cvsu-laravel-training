@@ -310,8 +310,46 @@
                 ['z','x','c','v','b','n','m'],
             ];
             $specialKeys = ['+','#'];
+            // Used and found words counters
+            $usedWords = session('used_words', []); // array of words already played
+            $foundWords = session('found_words', []); // array of words successfully guessed
+            $usedWordsCount = count($usedWords);
+            $foundWordsCount = count($foundWords);
         @endphp
         <section class="hud">
+            <div class="stats-row">
+                <div class="stat-item"><strong>Used Words:</strong> <span id="used-words-count" class="blue">{{ $usedWordsCount }}</span></div>
+                <div class="stat-item"><strong>Found Words:</strong> <span id="found-words-count" class="accent">{{ $foundWordsCount }}</span></div>
+                <button id="show-modal-btn" class="btn secondary" type="button" style="height:32px;font-size:10px;padding:0 8px;">Show Word Lists</button>
+                <button id="reset-progress-btn" class="btn secondary" type="button" style="height:32px;font-size:10px;padding:0 8px;">Reset Progress</button>
+            </div>
+                    <!-- Modal for Used and Found Words -->
+                    <div id="word-modal" class="modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(20,20,40,0.85);z-index:1000;align-items:center;justify-content:center;">
+                        <div class="modal-content" style="background:#1a2142;border:4px solid #fff;box-shadow:0 0 0 4px #000;padding:24px;max-width:420px;width:90vw;color:#ecf4ff;font-family:'Press Start 2P',monospace;">
+                            <h3 style="color:#ffd166;text-shadow:2px 2px 0 #000;margin-top:0;">Word Lists</h3>
+                            <div style="margin-bottom:18px;">
+                                <strong style="color:#62d0ff;">Used Words:</strong>
+                                <ul id="used-words-list" style="margin:8px 0 0 0;padding-left:18px;max-height:120px;overflow:auto;">
+                                    @forelse($usedWords as $uw)
+                                        <li>{{ $uw }}</li>
+                                    @empty
+                                        <li><em>None</em></li>
+                                    @endforelse
+                                </ul>
+                            </div>
+                            <div style="margin-bottom:18px;">
+                                <strong style="color:#57f287;">Found Words:</strong>
+                                <ul id="found-words-list" style="margin:8px 0 0 0;padding-left:18px;max-height:120px;overflow:auto;">
+                                    @forelse($foundWords as $fw)
+                                        <li>{{ $fw }}</li>
+                                    @empty
+                                        <li><em>None</em></li>
+                                    @endforelse
+                                </ul>
+                            </div>
+                            <button id="close-modal-btn" class="btn warn" type="button" style="height:32px;font-size:10px;padding:0 8px;">Close</button>
+                        </div>
+                    </div>
             <div><strong>Category:</strong> <span id="category">{{ ucfirst(str_replace('_', ' ', $category)) }}</span></div>
             <div class="clue"><strong>Clue:</strong> <span id="clue">{{ $clue }}</span></div>
             <div class="tries-wrap">
@@ -363,7 +401,7 @@
         <div class="links">
             <button id="restart-btn" class="btn warn" type="button">Restart</button>
             @if($won)
-                <a class="btn green" href="{{ route('guess') }}">Play Again</a>
+                <a class="btn green" href="{{ route('guess') }}">Proceed to Next Word</a>
             @elseif($lost)
                 <a class="btn green" href="{{ route('guess') }}">Try Again</a>
             @endif
@@ -372,19 +410,60 @@
     </main>
 
     <script>
-        // DOM Elements
-        const keyboard = document.getElementById('keyboard');
+        // Modal logic
+        const modal = document.getElementById('word-modal');
+        const showModalBtn = document.getElementById('show-modal-btn');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const resetProgressBtn = document.getElementById('reset-progress-btn');
         const displayEl = document.getElementById('display');
         const categoryEl = document.getElementById('category');
         const clueEl = document.getElementById('clue');
-        const hpBarEl = document.getElementById('hp-bar');
         const triesRemainingEl = document.getElementById('tries-remaining');
-        const wrongLettersEl = document.getElementById('wrong-letters');
-        const statusEl = document.getElementById('status');
-        const restartBtn = document.getElementById('restart-btn');
+        const hpBarEl = document.getElementById('hp-bar');
         const progressCountEl = document.getElementById('progress-count');
         const totalLettersEl = document.getElementById('total-letters');
         const totalGuessesEl = document.getElementById('total-guesses');
+        const usedWordsCountEl = document.getElementById('used-words-count');
+        const foundWordsCountEl = document.getElementById('found-words-count');
+        const usedWordsListEl = document.getElementById('used-words-list');
+        const foundWordsListEl = document.getElementById('found-words-list');
+        const statusEl = document.getElementById('status');
+        const wrongLettersEl = document.getElementById('wrong-letters');
+        const keyboard = document.getElementById('keyboard');
+        if (showModalBtn && modal) {
+            showModalBtn.addEventListener('click', function() {
+                modal.style.display = 'flex';
+            });
+        }
+        if (closeModalBtn && modal) {
+            closeModalBtn.addEventListener('click', function() {
+                modal.style.display = 'none';
+            });
+        }
+        if (resetProgressBtn) {
+            resetProgressBtn.addEventListener('click', async function () {
+                const confirmed = window.confirm('Reset all progress and start over with a new word?');
+                if (!confirmed) {
+                    return;
+                }
+
+                const data = await requestGame(new URLSearchParams({ reset_progress: '1' }));
+                if (!data) {
+                    return;
+                }
+
+                applyState(data);
+            });
+        }
+        // Close modal on outside click
+        if (modal) {
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    modal.style.display = 'none';
+                }
+            });
+        }
+        // ...existing code...
         
         // State tracking
         let previousWrongCount = {{ count($wrong) }};
@@ -556,7 +635,7 @@
                 return;
             }
 
-            const actionText = type === 'won' ? 'Play Again' : 'Try Again';
+            const actionText = type === 'won' ? 'Proceed to Next Word' : 'Try Again';
             links.innerHTML = `<button id="restart-btn" class="btn warn" type="button">Restart</button><a class="btn green" href="{{ route('guess') }}">${actionText}</a><a class="btn secondary" href="{{ route('home') }}">Home</a>`;
             bindRestart();
         }
@@ -573,6 +652,20 @@
             if (totalGuessesEl) {
                 totalGuessesEl.textContent = stats.totalGuesses;
             }
+        }
+
+        function renderWordList(listEl, words) {
+            if (!listEl) {
+                return;
+            }
+
+            const safeWords = Array.isArray(words) ? words : [];
+            if (safeWords.length === 0) {
+                listEl.innerHTML = '<li><em>None</em></li>';
+                return;
+            }
+
+            listEl.innerHTML = safeWords.map(word => `<li>${word}</li>`).join('');
         }
 
         function applyState(data) {
@@ -593,6 +686,14 @@
             if (data.word && data.correct) {
                 updateProgressCounters(data);
             }
+            if (usedWordsCountEl && typeof data.usedWordsCount === 'number') {
+                usedWordsCountEl.textContent = data.usedWordsCount;
+            }
+            if (foundWordsCountEl && typeof data.foundWordsCount === 'number') {
+                foundWordsCountEl.textContent = data.foundWordsCount;
+            }
+            renderWordList(usedWordsListEl, data.usedWords);
+            renderWordList(foundWordsListEl, data.foundWords);
 
             // Play sounds based on state changes
 
@@ -648,12 +749,32 @@
         // === API FUNCTIONS ===
 
         async function requestGame(params) {
-            const response = await fetch(`{{ route('guess') }}?${params.toString()}`, {
-                headers: {
-                    'Accept': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            });
+            const requestBody = params.toString();
+            const commonHeaders = {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+            };
+
+            let response;
+            try {
+                response = await fetch(`{{ route('guess.put') }}`, {
+                    method: 'PUT',
+                    headers: commonHeaders,
+                    body: requestBody
+                });
+            } catch (error) {
+                response = null;
+            }
+
+            if (!response || response.status === 405 || response.status === 501) {
+                response = await fetch(`{{ route('guess.put') }}`, {
+                    method: 'POST',
+                    headers: commonHeaders,
+                    body: `${requestBody}&_method=PUT`
+                });
+            }
 
             if (!response.ok) {
                 return null;
