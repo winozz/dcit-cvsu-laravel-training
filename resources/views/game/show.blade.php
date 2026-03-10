@@ -14,6 +14,7 @@
             $foundWordsCount = $foundWordsCount ?? count($foundWords ?? []);
             $restartAllowed = $restartAllowed ?? (empty($wrong) && empty($correct));
             $gameSlug = $gameSlug ?? 'word-quest';
+            $readonly = $readonly ?? false;
         @endphp
 
         <section class="surface flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -50,7 +51,9 @@
             </div>
             <div class="stat-card flex-wrap gap-2">
                 <button id="show-modal-btn" class="btn secondary h-9 px-3 text-[10px]">Word Lists</button>
-                <button id="reset-progress-btn" class="btn secondary h-9 px-3 text-[10px]">Reset Progress</button>
+                @if(!$readonly)
+                    <button id="reset-progress-btn" class="btn secondary h-9 px-3 text-[10px]">Reset Progress</button>
+                @endif
             </div>
         </section>
 
@@ -58,8 +61,10 @@
             <div id="display" class="display-text">{{ $display }}</div>
         </div>
 
-        <div id="status" class="status-bar @if($won) win @elseif($lost) lose @endif">
-            @if($won)
+        <div id="status" class="status-bar @if($readonly) readonly @elseif($won) win @elseif($lost) lose @endif">
+            @if($readonly)
+                All challenges completed. Game is now read-only.
+            @elseif($won)
                 VICTORY! The word is: {{ $word }} — {{ $correctCount + $wrongCount }} guesses for {{ $uniqueLetters }} letters
             @elseif($lost)
                 GAME OVER! The word was: {{ $word }} — {{ $correctCount + $wrongCount }} guesses
@@ -79,7 +84,7 @@
                 <div class="section-title mb-0">Keyboard</div>
                 <div class="chip text-white/80">Enter = next round</div>
             </div>
-            <div id="keyboard" class="keyboard @if($won || $lost) hidden @endif">
+            <div id="keyboard" class="keyboard @if($won || $lost || $readonly) hidden @endif">
                 @foreach ($keyboardRows as $row)
                     <div class="keyboard-row">
                         @foreach ($row as $letter)
@@ -99,11 +104,13 @@
             $nextLabel = $won ? 'Proceed to Next Word' : ($lost ? 'Try Again' : null);
         @endphp
         <div class="surface-ghost flex flex-wrap gap-2 items-center">
-            <button id="restart-btn" class="btn warn h-9 px-3 text-[10px]" @if(!$restartAllowed) disabled aria-disabled="true" title="Restart disabled after guesses begin" @endif>Restart</button>
-            <form id="next-form" class="{{ $nextLabel ? '' : 'hidden' }} inline-block" method="POST" action="{{ route('games.next', ['game' => $gameSlug]) }}">
-                @csrf
-                <button id="next-btn" class="btn green h-9 px-3 text-[10px]" type="submit">{{ $nextLabel ?? 'Next Word' }}</button>
-            </form>
+            @if(!$readonly)
+                <button id="restart-btn" class="btn warn h-9 px-3 text-[10px]" @if(!$restartAllowed) disabled aria-disabled="true" title="Restart disabled after guesses begin" @endif>Restart</button>
+                <form id="next-form" class="{{ $nextLabel ? '' : 'hidden' }} inline-block" method="POST" action="{{ route('games.next', ['game' => $gameSlug]) }}">
+                    @csrf
+                    <button id="next-btn" class="btn green h-9 px-3 text-[10px]" type="submit">{{ $nextLabel ?? 'Next Word' }}</button>
+                </form>
+            @endif
             <a class="btn secondary h-9 px-3 text-[10px]" href="{{ route('games.index') }}">Home</a>
         </div>
 
@@ -169,9 +176,15 @@
         const nextBtn = document.getElementById('next-btn');
         const nextForm = document.getElementById('next-form');
 
-        let restartAllowed = {{ $restartAllowed ? 'true' : 'false' }};
-        let nextLabel = @json($nextLabel);
-        let gameEnded = {{ ($won || $lost) ? 'true' : 'false' }};
+        const state = {
+            restartAllowed: {{ $restartAllowed ? 'true' : 'false' }},
+            nextLabel: @json($nextLabel),
+            gameEnded: {{ ($won || $lost) ? 'true' : 'false' }},
+            isReadonly: {{ ($readonly ?? false) ? 'true' : 'false' }},
+        };
+        if (state.isReadonly) state.gameEnded = true;
+
+        const setState = (patch = {}) => Object.assign(state, patch);
 
         function renderHpBar(maxTries, triesUsed) {
             if (!hpBarEl) return;
@@ -208,7 +221,10 @@
         }
 
         function applyState(data) {
-            if (data.restartAllowed !== undefined) restartAllowed = data.restartAllowed;
+            setState({
+                restartAllowed: data.restartAllowed ?? state.restartAllowed,
+                isReadonly: !!data.readonly,
+            });
 
             displayEl.textContent = data.display;
             categoryEl.textContent = data.category.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
@@ -229,24 +245,30 @@
                 ? 'Wrong: ' + data.wrong.join(', ').toUpperCase()
                 : '';
 
-            if (data.won) {
+            if (data.readonly) {
+                statusEl.className = 'status-bar readonly';
+                statusEl.textContent = 'All challenges completed. Game is now read-only.';
+                keyboard.classList.add('hidden');
+                updateNextButtonLabel(null);
+                setState({ gameEnded: true, isReadonly: true });
+            } else if (data.won) {
                 statusEl.className = 'status-bar win';
                 statusEl.innerHTML = `VICTORY! The word is: ${data.word}`;
                 keyboard.classList.add('hidden');
                 updateNextButtonLabel('Proceed to Next Word');
-                gameEnded = true;
+                setState({ gameEnded: true, isReadonly: false });
             } else if (data.lost) {
                 statusEl.className = 'status-bar lose';
                 statusEl.innerHTML = `GAME OVER! The word was: ${data.word}`;
                 keyboard.classList.add('hidden');
                 updateNextButtonLabel('Try Again');
-                gameEnded = true;
+                setState({ gameEnded: true, isReadonly: false });
             } else {
                 statusEl.className = 'status-bar';
                 statusEl.textContent = 'Stay sharp — wrong letters cost HP.';
                 keyboard.classList.remove('hidden');
                 updateNextButtonLabel(null); // hide label reset
-                gameEnded = false;
+                setState({ gameEnded: false, isReadonly: false });
             }
 
             updateKeyboardState(document.querySelectorAll('.key'), data);
@@ -265,7 +287,7 @@
 
         function syncRestartButton() {
             if (!restartBtn) return;
-            if (restartAllowed) {
+            if (state.restartAllowed) {
                 restartBtn.removeAttribute('disabled');
                 restartBtn.removeAttribute('aria-disabled');
                 restartBtn.title = '';
@@ -276,14 +298,16 @@
             }
         }
 
+        const jsonHeaders = () => ({
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRF-TOKEN': csrfToken,
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        });
+
         async function requestGame(params) {
             const body = params.toString();
-            const headers = {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-                'X-CSRF-TOKEN': csrfToken,
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            };
+            const headers = jsonHeaders();
             let response;
             try {
                 response = await fetch(updateUrl, { method: 'PUT', headers, body });
@@ -300,6 +324,7 @@
         // Events
         if (resetProgressBtn) {
             resetProgressBtn.addEventListener('click', async () => {
+                if (state.isReadonly) return;
                 if (!confirm('Reset all progress and start over with a new word?')) return;
                 const data = await requestGame(new URLSearchParams({ reset_progress: '1' }));
                 if (data) applyState(data);
@@ -308,7 +333,7 @@
 
         if (restartBtn) {
             restartBtn.addEventListener('click', async () => {
-                if (!restartAllowed) return;
+                if (!state.restartAllowed || state.isReadonly) return;
                 const data = await requestGame(new URLSearchParams({ restart: '1' }));
                 if (data) applyState(data);
             });
@@ -322,15 +347,9 @@
         }
 
         async function triggerNext() {
-            const headers = {
-                'Accept': 'application/json',
-                'X-Requested-With': 'XMLHttpRequest',
-                'X-CSRF-TOKEN': csrfToken,
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            };
             let response;
             try {
-                response = await fetch(nextUrl, { method: 'POST', headers, body: '' });
+                response = await fetch(nextUrl, { method: 'POST', headers: jsonHeaders(), body: '' });
             } catch (err) {
                 response = null;
             }
@@ -346,6 +365,7 @@
         if (keyboard) {
             keyboard.addEventListener('click', async (event) => {
                 if (!event.target.classList.contains('key') || event.target.disabled) return;
+                if (statusEl.classList.contains('readonly') || state.isReadonly) return;
                 const letter = event.target.dataset.letter;
                 if (!letter) return;
                 const data = await requestGame(new URLSearchParams({ letter }));
@@ -358,7 +378,7 @@
 
             // Enter: after win/loss, start next round
             if (key === 'enter') {
-                if (gameEnded) {
+                if (state.gameEnded && !state.isReadonly) {
                     event.preventDefault();
                     await triggerNext();
                 }
@@ -366,7 +386,7 @@
             }
 
             // Only handle letter keys during active play
-            if (!keyboard || keyboard.classList.contains('hidden')) return;
+            if (!keyboard || keyboard.classList.contains('hidden') || state.isReadonly) return;
             if (key.length !== 1 || !/[a-z]/.test(key)) return;
             const btn = document.querySelector(`.key[data-letter=\"${key}\"]`);
             if (!btn || btn.disabled) return;
@@ -396,7 +416,7 @@
             wrong: @json($wrong),
         });
         syncRestartButton();
-        updateNextButtonLabel(nextLabel);
+        updateNextButtonLabel(state.nextLabel);
     </script>
     @endpush
 </x-app>

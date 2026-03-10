@@ -1,7 +1,9 @@
 @push('head')
 <style>
     h1 { margin:0 0 16px; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px; }
+    /* Use simple stacked cards (no flex/grid) */
+    .grid { display:block; }
+    .grid .card + .card { margin-top:16px; }
     .card { background:#1a2142; border:2px solid #2f3a66; border-radius:10px; padding:16px; box-shadow:0 10px 24px rgba(0,0,0,0.35); }
     .card h2 { margin:0 0 8px; font-size:18px; color:#ffd166; }
     .card p { margin:0 0 12px; color:#c7d6ff; }
@@ -20,6 +22,7 @@
         </div>
         <div class="grid">
             @foreach($games as $game)
+                @continue(($game['slug'] ?? '') === 'word-quest')
                 <div class="card">
                     <h2>{{ $game['name'] }}</h2>
                     <p>{{ $game['description'] }}</p>

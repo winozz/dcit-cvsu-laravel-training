@@ -30,20 +30,14 @@ class GameCatalogService implements GameCatalogContract
      */
     public function add(array $data): array
     {
-        $slug = $data['slug'] ?? '';
         $name = $data['name'] ?? '';
         $description = $data['description'] ?? '';
 
-        if ($slug === '') {
-            $slug = Str::slug($name);
-        }
+        // Always use a UUID as the route/key identifier to avoid slug collisions.
+        $uuid = (string) Str::uuid();
 
-        if ($slug === '') {
-            return ['ok' => false, 'message' => 'Slug could not be generated.'];
-        }
-
-        if ($this->existsBySlug($slug)) {
-            return ['ok' => false, 'message' => 'Slug is already in use.'];
+        if ($this->existsBySlug($uuid)) {
+            return ['ok' => false, 'message' => 'ID collision occurred; try again.'];
         }
 
         if ($this->existsByName($name)) {
@@ -51,7 +45,8 @@ class GameCatalogService implements GameCatalogContract
         }
 
         $game = [
-            'slug' => $slug,
+            'slug' => $uuid, // kept as "slug" for routing compatibility, but value is a UUID
+            'uuid' => $uuid,
             'name' => $name,
             'description' => $description,
             'route' => 'games.show',
