@@ -3,119 +3,156 @@
 namespace App\Services;
 
 use App\Constants\ChallengeGameConstants;
+use App\Services\Contracts\GameServiceContract;
+use App\Services\ChallengeGameItemService;
 use App\Utilities\GameLetterUtility;
 
-class GameService
+class GameService implements GameServiceContract
 {
-    public function handleTurn(bool $resetProgress, bool $restart, ?string $letter): array
+    public function __construct(
+        private readonly ChallengeGameItemService $items
+    ) {}
+
+    public function handleTurn(bool $resetProgress, bool $restart, ?string $letter, string $game): array
     {
         if ($resetProgress) {
-            $this->resetProgress();
+            $this->resetProgress($game);
         }
 
-        if ($restart) {
-            $this->restartGame();
+        $hasGuesses = $this->hasGuesses($game);
+        $restartAllowed = $restart && !$hasGuesses;
+        if ($restartAllowed) {
+            $this->restartGame($game);
         }
 
-        $this->ensureGameStarted();
+        $this->ensureGameStarted($game);
 
-        if (!$restart && $letter !== null && $letter !== '') {
-            $this->processGuess($letter);
+        if (!$restartAllowed && $letter) {
+            $this->processGuess($letter, $game);
         }
 
-        $gameData = $this->buildGameData();
-        if ($gameData['won'] || $gameData['lost']) {
-            return array_merge($gameData, $this->finalizeRound($gameData['won']));
-        }
-
-        return $gameData;
+        $gameData = $this->buildGameData($game);
+        return ($gameData['won'] || $gameData['lost'])
+            ? array_merge($gameData, $this->finalizeRound($gameData['won'], $game))
+            : $gameData;
     }
 
-    public function resetProgress(): void
+    /**
+     * Generate the next challenge (category + word) for a game without mutating state.
+     *
+     * @return array{category:string,word:string,resetHistory:bool}
+     */
+    public function generateChallenge(string $game): array
     {
+        $excludedWords = array_values(array_unique(array_merge(
+            session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []),
+            session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), [])
+        )));
+
+        $availableByCategory = $this->items->availableByCategory($excludedWords);
+
+        $resetHistory = false;
+        if (!$availableByCategory) {
+            // All words consumed; restart the pool if any active items exist.
+            $availableByCategory = $this->items->availableByCategory([]);
+            $resetHistory = (bool) $availableByCategory;
+        }
+
+        if (!$availableByCategory) {
+            throw new \RuntimeException('No active challenge items available. Seed the database first.');
+        }
+
+        $category = array_rand($availableByCategory);
+        $word = $availableByCategory[$category][array_rand($availableByCategory[$category])];
+
+        return [
+            'category' => $category,
+            'word' => $word,
+            'resetHistory' => $resetHistory,
+        ];
+    }
+
+    public function resetProgress(string $game): void
+    {
+        session()->forget($this->keyedSessionKeys($game));
         session()->forget([
-            ...ChallengeGameConstants::SESSION_KEYS,
-            ChallengeGameConstants::SESSION_USED_WORDS,
-            ChallengeGameConstants::SESSION_FOUND_WORDS,
+            $this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game),
+            $this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game),
         ]);
-
-        $this->startNewGame();
+        $this->startNewGame($game);
     }
 
-    public function restartGame(): void
+    public function restartGame(string $game): void
     {
-        $this->clearGame();
-        $this->startNewGame();
+        $this->clearGame($game);
+        $this->startNewGame($game);
     }
 
-    public function ensureGameStarted(): void
+    public function ensureGameStarted(string $game): void
     {
-        if (!session(ChallengeGameConstants::SESSION_WORD)) {
-            $this->startNewGame();
+        if (!session($this->key(ChallengeGameConstants::SESSION_WORD, $game))) {
+            $this->startNewGame($game);
         }
     }
 
-    public function clearGame(): void
+    public function clearGame(string $game): void
     {
-        session()->forget(ChallengeGameConstants::SESSION_KEYS);
+        session()->forget($this->keyedSessionKeys($game));
     }
 
-    public function finalizeRound(bool $won): array
+    public function finalizeRound(bool $won, string $game): array
     {
-        $word = (string) session(ChallengeGameConstants::SESSION_WORD, '');
-        if ($won && $word !== '') {
-            $this->appendUniqueSessionWord(ChallengeGameConstants::SESSION_FOUND_WORDS, $word);
+        $word = (string) session($this->key(ChallengeGameConstants::SESSION_WORD, $game), '');
+        if ($won && $word) {
+            $this->appendUniqueSessionWord(ChallengeGameConstants::SESSION_FOUND_WORDS, $word, $game);
         }
-
-        $usedWords = session(ChallengeGameConstants::SESSION_USED_WORDS, []);
-        $foundWords = session(ChallengeGameConstants::SESSION_FOUND_WORDS, []);
-
-        $this->clearGame();
-
+        $usedWords = session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []);
+        $foundWords = session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), []);
+        $this->clearGame($game);
         return [
             'usedWords' => $usedWords,
             'foundWords' => $foundWords,
             'usedWordsCount' => count($usedWords),
             'foundWordsCount' => count($foundWords),
+            'restartAllowed' => false,
         ];
     }
 
-    public function processGuess(?string $letter): void
+    public function processGuess(?string $letter, string $game): void
     {
         $normalized = GameLetterUtility::normalizeGuess($letter);
-        if ($normalized === null) {
-            return;
-        }
+        if ($normalized === null) return;
 
-        $correct = session(ChallengeGameConstants::SESSION_CORRECT, []);
-        $wrong = session(ChallengeGameConstants::SESSION_WRONG, []);
+        $correct = session($this->key(ChallengeGameConstants::SESSION_CORRECT, $game), []);
+        $wrong = session($this->key(ChallengeGameConstants::SESSION_WRONG, $game), []);
 
-        if (!GameLetterUtility::isNewGuess($normalized, $correct, $wrong)) {
-            return;
-        }
+        if (!GameLetterUtility::isNewGuess($normalized, $correct, $wrong)) return;
 
-        if (stripos((string) session(ChallengeGameConstants::SESSION_WORD), $normalized) !== false) {
+        $word = (string) session($this->key(ChallengeGameConstants::SESSION_WORD, $game));
+        if (stripos($word, $normalized) !== false) {
             $correct[] = $normalized;
         } else {
             $wrong[] = $normalized;
         }
 
         session([
-            ChallengeGameConstants::SESSION_CORRECT => $correct,
-            ChallengeGameConstants::SESSION_WRONG => $wrong,
+            $this->key(ChallengeGameConstants::SESSION_CORRECT, $game) => $correct,
+            $this->key(ChallengeGameConstants::SESSION_WRONG, $game) => $wrong,
         ]);
     }
 
-    public function buildGameData(): array
+    public function buildGameData(string $game): array
     {
-        $word = (string) session(ChallengeGameConstants::SESSION_WORD);
-        $category = (string) session(ChallengeGameConstants::SESSION_CATEGORY);
-        $correct = session(ChallengeGameConstants::SESSION_CORRECT, []);
-        $wrong = session(ChallengeGameConstants::SESSION_WRONG, []);
-        $usedWords = session(ChallengeGameConstants::SESSION_USED_WORDS, []);
-        $foundWords = session(ChallengeGameConstants::SESSION_FOUND_WORDS, []);
+        $word = (string) session($this->key(ChallengeGameConstants::SESSION_WORD, $game));
+        $category = (string) session($this->key(ChallengeGameConstants::SESSION_CATEGORY, $game));
+        $correct = session($this->key(ChallengeGameConstants::SESSION_CORRECT, $game), []);
+        $wrong = session($this->key(ChallengeGameConstants::SESSION_WRONG, $game), []);
+        $usedWords = session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []);
+        $foundWords = session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), []);
         $tries = count($wrong);
-        $clue = ChallengeGameConstants::CLUES[$category][$word] ?? 'No clue available.';
+        $restartAllowed = !$this->hasGuesses($game);
+        $clue = $this->items->clue($category, $word);
+        $maxTries = $this->items->maxTries($category, $word);
         $display = GameLetterUtility::buildDisplay($word, $correct);
 
         return [
@@ -124,65 +161,68 @@ class GameService
             'clue' => $clue,
             'display' => $display,
             'won' => !str_contains($display, '_'),
-            'lost' => $tries >= ChallengeGameConstants::MAX_TRIES,
+            'lost' => $tries >= $maxTries,
             'tries' => $tries,
             'correct' => $correct,
             'wrong' => $wrong,
-            'maxTries' => ChallengeGameConstants::MAX_TRIES,
+            'maxTries' => $maxTries,
             'usedWords' => $usedWords,
             'foundWords' => $foundWords,
             'usedWordsCount' => count($usedWords),
             'foundWordsCount' => count($foundWords),
+            'restartAllowed' => $restartAllowed,
+            'gameSlug' => $game,
         ];
     }
 
-    private function startNewGame(): void
+    private function startNewGame(string $game): void
     {
-        $excludedWords = array_values(array_unique(array_merge(
-            session(ChallengeGameConstants::SESSION_USED_WORDS, []),
-            session(ChallengeGameConstants::SESSION_FOUND_WORDS, [])
-        )));
+        $challenge = $this->generateChallenge($game);
 
-        $availableByCategory = [];
-        foreach (ChallengeGameConstants::CATEGORIES as $category => $words) {
-            $remaining = array_values(array_filter(
-                $words,
-                static fn(string $word): bool => !in_array($word, $excludedWords, true)
-            ));
-
-            if ($remaining !== []) {
-                $availableByCategory[$category] = $remaining;
-            }
-        }
-
-        // If all words were consumed, reset history and start a fresh cycle.
-        if ($availableByCategory === []) {
+        if ($challenge['resetHistory']) {
             session([
-                ChallengeGameConstants::SESSION_USED_WORDS => [],
-                ChallengeGameConstants::SESSION_FOUND_WORDS => [],
+                $this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game) => [],
+                $this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game) => [],
             ]);
-            $availableByCategory = ChallengeGameConstants::CATEGORIES;
         }
 
-        $category = array_rand($availableByCategory);
-        $word = $availableByCategory[$category][array_rand($availableByCategory[$category])];
+        $category = $challenge['category'];
+        $word = $challenge['word'];
+        $maxTries = $this->items->maxTries($category, $word);
 
         session([
-            ChallengeGameConstants::SESSION_WORD => $word,
-            ChallengeGameConstants::SESSION_CATEGORY => $category,
-            ChallengeGameConstants::SESSION_CORRECT => [],
-            ChallengeGameConstants::SESSION_WRONG => [],
+            $this->key(ChallengeGameConstants::SESSION_WORD, $game) => $word,
+            $this->key(ChallengeGameConstants::SESSION_CATEGORY, $game) => $category,
+            $this->key(ChallengeGameConstants::SESSION_CORRECT, $game) => [],
+            $this->key(ChallengeGameConstants::SESSION_WRONG, $game) => [],
+            $this->key('max_tries', $game) => $maxTries,
         ]);
 
-        $this->appendUniqueSessionWord(ChallengeGameConstants::SESSION_USED_WORDS, $word);
+        $this->appendUniqueSessionWord(ChallengeGameConstants::SESSION_USED_WORDS, $word, $game);
     }
 
-    private function appendUniqueSessionWord(string $key, string $word): void
+    private function appendUniqueSessionWord(string $key, string $word, string $game): void
     {
-        $words = session($key, []);
+        $words = session($this->key($key, $game), []);
         if (!in_array($word, $words, true)) {
             $words[] = $word;
-            session([$key => $words]);
+            session([$this->key($key, $game) => $words]);
         }
+    }
+
+    private function keyedSessionKeys(string $game): array
+    {
+        return array_map(fn(string $k) => $this->key($k, $game), ChallengeGameConstants::SESSION_KEYS);
+    }
+
+    private function key(string $base, string $game): string
+    {
+        return "games.$game.$base";
+    }
+
+    private function hasGuesses(string $game): bool
+    {
+        return !empty(session($this->key(ChallengeGameConstants::SESSION_CORRECT, $game), []))
+            || !empty(session($this->key(ChallengeGameConstants::SESSION_WRONG, $game), []));
     }
 }
