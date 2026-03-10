@@ -7,5 +7,7 @@ Route::get('/', function () {
     return view('welcome');
 })->name('home');
 
-Route::get('/guess', [GameController::class, 'show'])->name('guess');
-Route::put('/guess', [GameController::class, 'update'])->name('guess.put');
+// Game routes (no edit form)
+Route::resource('games', GameController::class)->except(['edit']);
+Route::post('games/{game}/next', [GameController::class, 'next'])->name('games.next');
+Route::delete('games', [GameController::class, 'destroyAll'])->name('games.destroyAll');
