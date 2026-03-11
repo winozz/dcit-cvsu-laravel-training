@@ -328,7 +328,6 @@
         }
 
         let pollTimer = null;
-        let opponentVersion = 0;
 
         function startOpponentStream() {
             // Always kick an immediate fetch so UI updates without waiting for first event/interval
@@ -354,27 +353,21 @@
         function startOpponentPoll() {
             if (!opponentUrl) return;
             clearInterval(pollTimer);
-            // long-poll loop
-            const poll = async () => {
-                try {
-                    const res = await fetch(`${opponentUrl}?since=${opponentVersion}`, { headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }});
-                    if (res.status === 204) {
-                        setTimeout(poll, 200);
-                        return;
-                    }
-                    if (!res.ok) {
-                        setTimeout(poll, 500);
-                        return;
-                    }
-                    const data = await res.json();
-                    if (data?.version) opponentVersion = data.version;
-                    applyOpponent(data);
-                    setTimeout(poll, 10); // immediately ask again
-                } catch (_) {
-                    setTimeout(poll, 500);
-                }
-            };
-            poll();
+            pollTimer = setInterval(fetchOpponentOnce, 500);
+        }
+
+        async function fetchOpponentOnce() {
+            if (!opponentUrl) return;
+            try {
+                const res = await fetch(opponentUrl, {
+                    headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' },
+                    credentials: 'same-origin',
+                });
+                if (res.status === 204) return;
+                if (!res.ok) return;
+                const data = await res.json();
+                applyOpponent(data);
+            } catch (_) {}
         }
 
         function updateNextButtonLabel(label) {
