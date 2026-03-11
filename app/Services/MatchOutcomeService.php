@@ -103,6 +103,9 @@ class MatchOutcomeService
             'host_done' => $match->host_done,
             'guest_done' => $match->guest_done,
         ]);
+
+        // Finalize immediately after expiry to avoid repeated expiry logs/polls.
+        $this->finalizeIfReady($match, true);
     }
 
     private function finalizeIfReady(ChallengeGameMatch $match, bool $force = false): void
