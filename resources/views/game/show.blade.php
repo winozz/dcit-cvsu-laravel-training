@@ -15,6 +15,8 @@
             $restartAllowed = $restartAllowed ?? (empty($wrong) && empty($correct));
             $gameSlug = $gameSlug ?? 'word-quest';
             $readonly = $readonly ?? false;
+            $matchCode = $matchCode ?? request('match');
+            $opponentProgress = $opponentProgress ?? null;
         @endphp
 
         <section class="surface flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -57,8 +59,42 @@
             </div>
         </section>
 
-        <div class="display-panel">
-            <div id="display" class="display-text">{{ $display }}</div>
+        <div class="grid md:grid-cols-2 gap-4">
+            <div class="display-panel">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="section-title mb-0">Your Board</div>
+                    @if($matchCode)
+                        <span class="chip">Room {{ $matchCode }}</span>
+                    @endif
+                </div>
+                <div id="display" class="display-text">{{ $display }}</div>
+            </div>
+
+            <div class="display-panel">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="section-title mb-0">Opponent Board</div>
+                    @if($opponentProgress)
+                        <span class="chip">{{ $opponentProgress['timestamp'] ? 'Updated' : 'Live' }}</span>
+                    @endif
+                </div>
+                @if($opponentProgress)
+                    <div class="text-lg font-mono tracking-wider">{{ $opponentProgress['display'] ?? '----' }}</div>
+                    <p class="text-white/70 text-xs mt-2">
+                        Progress: {{ $opponentProgress['tries'] ?? 0 }}/{{ $opponentProgress['maxTries'] ?? '?' }} ·
+                        Found: {{ $opponentProgress['foundWordsCount'] ?? 0 }} ·
+                        Used: {{ $opponentProgress['usedWordsCount'] ?? 0 }}
+                    </p>
+                    @if(!empty($opponentProgress['won']))
+                        <p class="text-[var(--green)] text-xs font-semibold mt-1">Opponent finished!</p>
+                    @elseif(!empty($opponentProgress['lost']))
+                        <p class="text-[var(--danger)] text-xs font-semibold mt-1">Opponent busted.</p>
+                    @elseif(!empty($opponentProgress['readonly']))
+                        <p class="text-white/60 text-xs mt-1">Opponent list depleted.</p>
+                    @endif
+                @else
+                    <p class="text-white/60 text-sm">Waiting for opponent progress...</p>
+                @endif
+            </div>
         </div>
 
         <div id="status" class="status-bar @if($readonly) readonly @elseif($won) win @elseif($lost) lose @endif">
@@ -149,8 +185,9 @@
     @push('scripts')
     <script>
         const csrfToken = '{{ csrf_token() }}';
-        const updateUrl = '{{ route('games.update', ['game' => $gameSlug]) }}';
-        const nextUrl = '{{ route('games.next', ['game' => $gameSlug]) }}';
+        const matchCode = '{{ $matchCode }}';
+        const updateUrl = '{{ route('games.update', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
+        const nextUrl = '{{ route('games.next', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
         const gameSlug = '{{ $gameSlug }}';
 
         const displayEl = document.getElementById('display');
