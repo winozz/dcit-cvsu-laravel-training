@@ -15,4 +15,5 @@ window.Echo = new Echo({
     wssPort: import.meta.env.VITE_PUSHER_PORT ?? 6001,
     forceTLS: false,
     disableStats: true,
+    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER ?? 'mt1',
 });
