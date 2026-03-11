@@ -18,8 +18,13 @@
     <x-pixel-panel title="Games Collection" class="mb-4">
         <x-flash />
         <div class="flex flex-wrap gap-2 mb-3">
-            <a class="card a" style="padding:10px 14px;background:#57f287;color:#0b1020;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('games.create') }}">Create Game</a>
-            <a class="card a" style="padding:10px 14px;background:#2a6df5;color:#fff;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('lobby.index') }}">Try PvP Multiplayer</a>
+            @if(empty($guestMode))
+                <a class="card a" style="padding:10px 14px;background:#57f287;color:#0b1020;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('games.create') }}">Create Game</a>
+                <a class="card a" style="padding:10px 14px;background:#2a6df5;color:#fff;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('lobby.index') }}">Try PvP Multiplayer</a>
+            @else
+                <span class="text-sm text-white/70">Guest mode: create/custom & PvP require sign-in.</span>
+                <a class="card a" style="padding:10px 14px;background:#2a6df5;color:#fff;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('players.login.form') }}">Sign in for PvP</a>
+            @endif
         </div>
         <div class="grid">
             @foreach($games as $game)
@@ -27,14 +32,16 @@
                 <div class="card">
                     <h2>{{ $game['name'] }}</h2>
                     <p>{{ $game['description'] }}</p>
-                    <a href="{{ route($game['route'], ['game' => $game['slug'] ?? \Illuminate\Support\Str::slug($game['name'])]) }}">Play</a>
+                    <a href="{{ empty($guestMode)\n+                        ? route($game['route'], ['game' => $game['slug'] ?? \\Illuminate\\Support\\Str::slug($game['name'])])\n+                        : route('guest.games.show', ['game' => $game['slug'] ?? \\Illuminate\\Support\\Str::slug($game['name'])])\n+                    }}">Play</a>
                 </div>
             @endforeach
         </div>
-        <form method="POST" action="{{ route('games.destroyAll') }}" style="margin-top:16px;">
-            @csrf
-            @method('DELETE')
-            <button type="submit" class="danger-btn">Clear Custom Games</button>
-        </form>
+        @if(empty($guestMode))
+            <form method="POST" action="{{ route('games.destroyAll') }}" style="margin-top:16px;">
+                @csrf
+                @method('DELETE')
+                <button type="submit" class="danger-btn">Clear Custom Games</button>
+            </form>
+        @endif
     </x-pixel-panel>
 </x-app>
