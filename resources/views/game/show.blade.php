@@ -19,6 +19,7 @@
             $opponentProgress = $opponentProgress ?? null;
             $playerName = $playerName ?? 'Your';
             $opponentName = $opponentName ?? 'Opponent';
+            $guestMode = $guestMode ?? false;
         @endphp
 
         <section class="surface flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -150,7 +151,9 @@
                     </form>
                 @endif
             @endif
-            @if($matchCode)
+            @if($guestMode)
+                <a class="btn secondary h-9 px-3 text-[10px]" href="{{ route('guest.games') }}">Home</a>
+            @elseif($matchCode)
                 <form class="inline-block" method="POST" action="{{ route('matches.exit', ['match' => $matchCode]) }}">
                     @csrf
                     <button class="btn secondary h-9 px-3 text-[10px]" type="submit">Home</button>

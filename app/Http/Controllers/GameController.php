@@ -47,6 +47,31 @@ class GameController extends Controller
         return redirect()->route('games.index')->with('status', 'Custom games cleared.');
     }
 
+    // Guest paths (no auth middleware)
+    public function guestIndex()
+    {
+        return view('games.index', [
+            'games' => $this->catalogService->all(),
+            'guestMode' => true,
+        ]);
+    }
+
+    public function guestShow(Request $request, string $game = 'word-quest')
+    {
+        // Guests reuse the normal game flow but without match/multiplayer state
+        $this->gameService->ensureGameStarted($game);
+        $gameData = $this->gameService->buildGameData($game);
+        $gameData['readonly'] = false;
+
+        return view('game.show', array_merge($gameData, [
+            'matchCode' => null,
+            'opponentProgress' => null,
+            'playerName' => 'Guest',
+            'opponentName' => 'Opponent',
+            'guestMode' => true,
+        ]));
+    }
+
     public function index()
     {
         return view('games.index', ['games' => $this->catalogService->all()]);
@@ -78,6 +103,7 @@ class GameController extends Controller
             'opponentProgress' => $opponentProgress,
             'playerName' => $this->currentPlayer()?->username,
             'opponentName' => $this->opponentName($matchCode),
+            'guestMode' => false,
         ]));
     }
 

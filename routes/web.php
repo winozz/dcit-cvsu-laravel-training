@@ -12,11 +12,16 @@ Route::get('/', function () {
 })->name('home');
 
 // Player auth
-Route::get('login', [PlayerAuthController::class, 'showLogin'])->middleware(['throttle:10,1','no.concurrent.login'])->name('players.login.form');
-Route::post('login', [PlayerAuthController::class, 'login'])->middleware(['throttle:10,1','no.concurrent.login'])->name('players.login');
-Route::get('register', [RegistrationController::class, 'create'])->middleware(['throttle:6,1','no.concurrent.login'])->name('players.register.form');
-Route::post('register', [RegistrationController::class, 'store'])->middleware(['throttle:6,1','no.concurrent.login'])->name('players.register');
+// More generous throttling to avoid 429 locally
+Route::get('login', [PlayerAuthController::class, 'showLogin'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.login.form');
+Route::post('login', [PlayerAuthController::class, 'login'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.login');
+Route::get('register', [RegistrationController::class, 'create'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.register.form');
+Route::post('register', [RegistrationController::class, 'store'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.register');
 Route::post('logout', [PlayerAuthController::class, 'logout'])->name('players.logout');
+
+// Guest games (no auth)
+Route::get('guest/games', [GameController::class, 'guestIndex'])->name('guest.games');
+Route::get('guest/games/{game}', [GameController::class, 'guestShow'])->name('guest.games.show');
 
 // Lobby + matches
 Route::middleware('player.session')->group(function () {
