@@ -15,8 +15,8 @@ erDiagram
     CHALLENGE_GAME_MATCHES {
         bigint id PK
         string code UNIQUE
-        bigint host_player_id FK -> PLAYERS.id
-        bigint guest_player_id FK -> PLAYERS.id
+        bigint host_player_id
+        bigint guest_player_id
         string status
         bool host_done
         bool guest_done
