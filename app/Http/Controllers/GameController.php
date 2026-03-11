@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreGameRequest;
 use App\Models\ChallengeGameMatch;
+use App\Services\MatchOutcomeService;
 use App\Services\Contracts\GameCatalogContract;
 use App\Services\Contracts\GameServiceContract;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ class GameController extends Controller
     public function __construct(
         private readonly GameServiceContract $gameService,
         private readonly GameCatalogContract $catalogService,
+        private readonly MatchOutcomeService $matchOutcome,
     )
     {
     }
@@ -51,16 +53,30 @@ class GameController extends Controller
 
     public function show(Request $request, string $game = 'word-quest')
     {
+        $matchCode = $request->query('match');
+
+        // If switching to a different match code, clear prior progress so used/found words don't leak.
+        $prevMatch = session('current_match_code');
+        if ($matchCode && $matchCode !== $prevMatch) {
+            $playerId = session('player_id');
+            if ($playerId && $prevMatch) {
+                Cache::forget($this->progressKey($prevMatch, $playerId));
+            }
+            $this->gameService->resetProgress($game);
+            session(['current_match_code' => $matchCode]);
+        }
+
         $this->gameService->ensureGameStarted($game);
         $gameData = $this->gameService->buildGameData($game);
 
-        $matchCode = $request->query('match');
         $opponentProgress = $this->opponentProgress($matchCode);
         $this->storeLiveSnapshot($gameData, $matchCode);
 
         return view('game.show', array_merge($gameData, [
             'matchCode' => $matchCode,
             'opponentProgress' => $opponentProgress,
+            'playerName' => $this->currentPlayer()?->username,
+            'opponentName' => $this->opponentName($matchCode),
         ]));
     }
 
@@ -117,6 +133,10 @@ class GameController extends Controller
         } catch (BroadcastException $e) {
             Log::warning('Opponent progress broadcast failed', ['error' => $e->getMessage()]);
         }
+
+        if (($gameData['won'] ?? false) || ($gameData['lost'] ?? false)) {
+            $this->matchOutcome->markProgress($matchCode, $playerId, $gameData['won'] ?? false, $gameData['lost'] ?? false);
+        }
     }
 
     private function opponentProgress(?string $matchCode): ?array
@@ -134,6 +154,25 @@ class GameController extends Controller
         if (!$opponentId) return null;
 
         return Cache::get($this->progressKey($matchCode, $opponentId));
+    }
+
+    private function currentPlayer()
+    {
+        $playerId = session('player_id');
+        return $playerId ? \App\Models\Player::find($playerId) : null;
+    }
+
+    private function opponentName(?string $matchCode): ?string
+    {
+        $player = $this->currentPlayer();
+        if (!$matchCode || !$player) return null;
+
+        $match = ChallengeGameMatch::where('code', $matchCode)->with(['host', 'guest'])->first();
+        if (!$match) return null;
+
+        return $match->host_player_id === $player->id
+            ? $match->guest?->username
+            : $match->host?->username;
     }
 
     private function progressKey(string $matchCode, int $playerId): string

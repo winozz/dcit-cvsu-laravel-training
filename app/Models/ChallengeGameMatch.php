@@ -14,6 +14,14 @@ class ChallengeGameMatch extends Model
         'host_player_id',
         'guest_player_id',
         'status',
+        'host_done',
+        'guest_done',
+        'host_forfeit',
+        'guest_forfeit',
+        'host_result',
+        'guest_result',
+        'expires_at',
+        'ended_at',
     ];
 
     public function getRouteKeyName(): string
