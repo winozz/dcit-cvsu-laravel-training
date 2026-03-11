@@ -513,7 +513,12 @@
         syncRestartButton();
         updateNextButtonLabel(state.nextLabel);
 
-        if (matchCode) {
+        if (matchCode && window.Echo) {
+            window.Echo.channel(`match.${matchCode}`)
+                .listen('OpponentProgressUpdated', (e) => {
+                    if (e?.payload) applyOpponent(e.payload);
+                });
+        } else if (matchCode) {
             startOpponentStream();
         }
     </script>

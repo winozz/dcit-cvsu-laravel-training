@@ -8,6 +8,7 @@ use App\Services\Contracts\GameCatalogContract;
 use App\Services\Contracts\GameServiceContract;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use App\Events\OpponentProgressUpdated;
 
 class GameController extends Controller
 {
@@ -109,6 +110,7 @@ class GameController extends Controller
         ];
 
         Cache::put($this->progressKey($matchCode, $playerId), $payload, now()->addMinutes(60));
+        OpponentProgressUpdated::dispatch($matchCode, $payload);
     }
 
     private function opponentProgress(?string $matchCode): ?array
