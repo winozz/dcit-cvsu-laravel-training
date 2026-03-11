@@ -80,15 +80,16 @@ class GameService implements GameServiceContract
         ];
     }
 
-    public function resetProgress(string $game): void
+    public function resetProgress(string $game, bool $force = false): void
     {
-        if ((bool) session($this->key('depleted', $game), false)) {
+        if (!$force && (bool) session($this->key('depleted', $game), false)) {
             return;
         }
         session()->forget($this->keyedSessionKeys($game));
         session()->forget([
             $this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game),
             $this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game),
+            $this->key('depleted', $game),
         ]);
         $this->startNewGame($game);
     }
@@ -275,6 +276,7 @@ class GameService implements GameServiceContract
             'found_words' => $foundWords,
         ]);
     }
+
 
     private function persistAudit(string $game, string $status): void
     {
