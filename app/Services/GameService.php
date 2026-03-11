@@ -296,7 +296,11 @@ class GameService implements GameServiceContract
 
     private function key(string $base, string $game): string
     {
-        return "games.$game.$base";
+        // Scope session data per player when logged in, so each player owns an isolated board.
+        $playerId = session('player_id');
+        $prefix = $playerId ? "players.$playerId." : '';
+
+        return "{$prefix}games.$game.$base";
     }
 
     private function hasGuesses(string $game): bool
