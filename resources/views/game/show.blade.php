@@ -17,6 +17,8 @@
             $readonly = $readonly ?? false;
             $matchCode = $matchCode ?? request('match');
             $opponentProgress = $opponentProgress ?? null;
+            $playerName = $playerName ?? 'Your';
+            $opponentName = $opponentName ?? 'Opponent';
         @endphp
 
         <section class="surface flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -62,7 +64,7 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div class="display-panel">
                 <div class="flex items-center justify-between mb-2">
-                    <div class="section-title mb-0">Your Board</div>
+                    <div class="section-title mb-0">{{ $playerName }}'s Board</div>
                     @if($matchCode)
                         <span class="chip">Room {{ $matchCode }}</span>
                     @endif
@@ -72,7 +74,7 @@
 
             <div class="display-panel">
                 <div class="flex items-center justify-between mb-2">
-                    <div class="section-title mb-0">Opponent Board</div>
+                    <div class="section-title mb-0">{{ $opponentName }}'s Board</div>
                     @if($opponentProgress)
                         <span class="chip">Live</span>
                     @endif
@@ -141,8 +143,21 @@
                     @csrf
                     <button id="next-btn" class="btn green h-9 px-3 text-[10px]" type="submit">{{ $nextLabel ?? 'Next Word' }}</button>
                 </form>
+                @if($matchCode)
+                    <form id="forfeit-form" class="inline-block" method="POST" action="{{ route('matches.forfeit', ['match' => $matchCode]) }}">
+                        @csrf
+                        <button class="btn secondary h-9 px-3 text-[10px]" type="submit">Forfeit Match</button>
+                    </form>
+                @endif
             @endif
-            <a class="btn secondary h-9 px-3 text-[10px]" href="{{ route('games.index') }}">Home</a>
+            @if($matchCode)
+                <form class="inline-block" method="POST" action="{{ route('matches.exit', ['match' => $matchCode]) }}">
+                    @csrf
+                    <button class="btn secondary h-9 px-3 text-[10px]" type="submit">Home</button>
+                </form>
+            @else
+                <a class="btn secondary h-9 px-3 text-[10px]" href="{{ route('lobby.index') }}">Home</a>
+            @endif
         </div>
 
         <div id="word-modal" class="modal hidden">
@@ -183,7 +198,8 @@
         const matchCode = '{{ $matchCode }}';
         const updateUrl = '{{ route('games.update', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
         const nextUrl = '{{ route('games.next', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
-        const streamUrl = matchCode ? `{{ url('matches') }}/${matchCode}/stream` : null;
+        // Disable SSE/websocket fallback; rely on JSON polling
+        const streamUrl = null;
         const opponentUrl = matchCode ? `{{ url('matches') }}/${matchCode}/opponent` : null;
         const gameSlug = '{{ $gameSlug }}';
 
@@ -211,6 +227,9 @@
         const foundWordsListEl = document.getElementById('found-words-list');
         const nextBtn = document.getElementById('next-btn');
         const nextForm = document.getElementById('next-form');
+        const forfeitForm = document.getElementById('forfeit-form');
+        const statusPollUrl = matchCode ? `{{ url('matches') }}/${matchCode}/status` : null;
+        const statusBanner = document.getElementById('status');
 
         const state = {
             restartAllowed: {{ $restartAllowed ? 'true' : 'false' }},
@@ -330,24 +349,9 @@
         let pollTimer = null;
 
         function startOpponentStream() {
-            // Always kick an immediate fetch so UI updates without waiting for first event/interval
+            // Always kick an immediate fetch so UI updates without waiting for first interval
             fetchOpponentOnce();
-            if (!streamUrl) return startOpponentPoll();
-            if (window.EventSource) {
-                const es = new EventSource(streamUrl);
-                es.addEventListener('progress', (event) => {
-                    try {
-                        const data = JSON.parse(event.data);
-                        applyOpponent(data);
-                    } catch (_) {}
-                });
-                es.onerror = () => {
-                    es.close();
-                    startOpponentPoll();
-                };
-            } else {
-                startOpponentPoll();
-            }
+            startOpponentPoll();
         }
 
         function startOpponentPoll() {
@@ -441,6 +445,34 @@
             });
         }
 
+        if (forfeitForm) {
+            forfeitForm.addEventListener('submit', (e) => {
+                if (!confirm('Forfeit this match? This will count as a loss.')) e.preventDefault();
+            });
+        }
+
+        // Auto-exit to lobby when match finishes
+        async function pollMatchStatus() {
+            if (!statusPollUrl) return;
+            try {
+                const res = await fetch(statusPollUrl, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data.status === 'active' && data.expires_at && statusBanner) {
+                    const t = new Date(data.expires_at).getTime();
+                    const now = Date.now();
+                    const remaining = Math.max(0, Math.floor((t - now) / 1000));
+                    statusBanner.dataset.timer = remaining;
+                }
+                if (data.status === 'finished') {
+                    alert('Match finished. Returning to lobby.');
+                    window.location.href = '{{ route('lobby.index') }}';
+                }
+            } catch (_) {}
+        }
+
+        if (statusPollUrl) setInterval(pollMatchStatus, 1000);
+
         async function triggerNext() {
             let response;
             try {
@@ -513,12 +545,7 @@
         syncRestartButton();
         updateNextButtonLabel(state.nextLabel);
 
-        if (matchCode && window.Echo) {
-            window.Echo.channel(`match.${matchCode}`)
-                .listen('OpponentProgressUpdated', (e) => {
-                    if (e?.payload) applyOpponent(e.payload);
-                });
-        } else if (matchCode) {
+        if (matchCode) {
             startOpponentStream();
         }
     </script>
