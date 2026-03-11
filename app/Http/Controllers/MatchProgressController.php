@@ -4,14 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\ChallengeGameMatch;
 use App\Services\MatchOutcomeService;
+use App\Services\MatchProgressService;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
-use Illuminate\Support\Facades\Cache;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MatchProgressController extends Controller
 {
-    public function __construct(private readonly MatchOutcomeService $matchOutcome) {}
+    public function __construct(
+        private readonly MatchOutcomeService $matchOutcome,
+        private readonly MatchProgressService $matchProgress,
+    ) {}
     public function stream(Request $request, ChallengeGameMatch $match): StreamedResponse
     {
         // Prevent long-running SSE from hitting the default 30s PHP timeout.
@@ -28,12 +31,12 @@ class MatchProgressController extends Controller
         }
 
         $lastEventId = (int) ($request->header('Last-Event-ID') ?? $request->query('last', 0));
-        $cacheKey = $this->progressKey($match->code, $opponentId);
+        $cacheKey = $this->matchProgress->key($match->code, $opponentId);
 
         return response()->stream(function () use ($cacheKey, &$lastEventId) {
             // Run a short-lived loop (< max_execution_time); client will reconnect.
             for ($i = 0; $i < 20; $i++) {
-                $progress = Cache::get($cacheKey);
+                $progress = $this->matchProgress->get($match->code, $opponentId);
                 $ts = (int) ($progress['version'] ?? 0);
 
                 if ($progress && $ts !== $lastEventId) {
@@ -55,11 +58,6 @@ class MatchProgressController extends Controller
         ]);
     }
 
-    private function progressKey(string $matchCode, int $playerId): string
-    {
-        return "matches.$matchCode.players.$playerId.progress";
-    }
-
     public function opponent(Request $request, ChallengeGameMatch $match)
     {
         $playerId = $request->session()->get('player_id');
@@ -68,7 +66,7 @@ class MatchProgressController extends Controller
         $opponentId = $match->host_player_id === $playerId ? $match->guest_player_id : $match->host_player_id;
         if (!$opponentId) return response()->json([], 204);
 
-        $cacheKey = $this->progressKey($match->code, $opponentId);
+        $cacheKey = $this->matchProgress->key($match->code, $opponentId);
 
         // Enforce expiry timers on each poll and reload match status
         $this->matchOutcome->markProgress($match->code, $playerId, false, false);
@@ -76,12 +74,12 @@ class MatchProgressController extends Controller
 
         // If match is finished, clear any stale opponent cache and return empty
         if ($match->status === 'finished') {
-            Cache::forget($cacheKey);
-            Cache::forget($this->progressKey($match->code, $playerId));
+            $this->matchProgress->forget($match->code, $opponentId);
+            $this->matchProgress->forget($match->code, $playerId);
             return response()->json([], 204);
         }
 
-        $progress = Cache::get($cacheKey);
+        $progress = $this->matchProgress->get($match->code, $opponentId);
         return $progress ? response()->json($progress) : response()->json([], 204);
     }
 

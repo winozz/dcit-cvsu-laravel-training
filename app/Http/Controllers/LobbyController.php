@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ChallengeGameMatch;
 use App\Models\Player;
 use App\Services\GameService;
+use App\Services\MatchProgressService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,7 +14,10 @@ use Illuminate\Support\Str;
 
 class LobbyController extends Controller
 {
-    public function __construct(private readonly GameService $gameService) {}
+    public function __construct(
+        private readonly GameService $gameService,
+        private readonly MatchProgressService $matchProgress,
+    ) {}
 
     public function index(Request $request): View|\Illuminate\Http\JsonResponse
     {
@@ -44,7 +48,7 @@ class LobbyController extends Controller
         // Clear any lingering progress caches from a previous match for this player
         $prevMatch = session('current_match_code');
         if ($prevMatch) {
-            Cache::forget($this->progressKey($prevMatch, $player->id));
+            Cache::forget($this->matchProgress->key($prevMatch, $player->id));
         }
 
         $code = strtoupper(Str::random(6));
@@ -75,7 +79,7 @@ class LobbyController extends Controller
         // Clear stale cache from previous match for this player
         $prevMatch = session('current_match_code');
         if ($prevMatch) {
-            Cache::forget($this->progressKey($prevMatch, $player->id));
+            Cache::forget($this->matchProgress->key($prevMatch, $player->id));
         }
 
         $match->update([
@@ -109,8 +113,4 @@ class LobbyController extends Controller
             ->first();
     }
 
-    private function progressKey(string $matchCode, int $playerId): string
-    {
-        return "matches.$matchCode.players.$playerId.progress";
-    }
 }

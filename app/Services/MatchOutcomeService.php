@@ -5,10 +5,15 @@ namespace App\Services;
 use App\Models\ChallengeGameMatch;
 use App\Models\Player;
 use Illuminate\Support\Carbon;
+use App\Services\MatchProgressService;
 use Illuminate\Support\Facades\Cache;
 
 class MatchOutcomeService
 {
+    public function __construct(private readonly MatchProgressService $progress)
+    {
+    }
+
     public function markProgress(?string $matchCode, int $playerId, bool $won, bool $lost): void
     {
         if (!$matchCode) return;
@@ -138,15 +143,10 @@ class MatchOutcomeService
     private function clearProgressCaches(ChallengeGameMatch $match): void
     {
         if ($match->host_player_id) {
-            Cache::forget($this->progressKey($match->code, $match->host_player_id));
+            Cache::forget($this->progress->key($match->code, $match->host_player_id));
         }
         if ($match->guest_player_id) {
-            Cache::forget($this->progressKey($match->code, $match->guest_player_id));
+            Cache::forget($this->progress->key($match->code, $match->guest_player_id));
         }
-    }
-
-    private function progressKey(string $matchCode, int $playerId): string
-    {
-        return "matches.$matchCode.players.$playerId.progress";
     }
 }

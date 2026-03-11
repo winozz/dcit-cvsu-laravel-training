@@ -5,10 +5,10 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreGameRequest;
 use App\Models\ChallengeGameMatch;
 use App\Services\MatchOutcomeService;
+use App\Services\MatchProgressService;
 use App\Services\Contracts\GameCatalogContract;
 use App\Services\Contracts\GameServiceContract;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Broadcasting\BroadcastException;
 use App\Events\OpponentProgressUpdated;
@@ -19,6 +19,7 @@ class GameController extends Controller
         private readonly GameServiceContract $gameService,
         private readonly GameCatalogContract $catalogService,
         private readonly MatchOutcomeService $matchOutcome,
+        private readonly MatchProgressService $matchProgress,
     )
     {
     }
@@ -60,7 +61,7 @@ class GameController extends Controller
         if ($matchCode && $matchCode !== $prevMatch) {
             $playerId = session('player_id');
             if ($playerId && $prevMatch) {
-                Cache::forget($this->progressKey($prevMatch, $playerId));
+                $this->matchProgress->forget($prevMatch, $playerId);
             }
             $this->gameService->resetProgress($game);
             session(['current_match_code' => $matchCode]);
@@ -127,7 +128,7 @@ class GameController extends Controller
             'readonly' => $gameData['readonly'] ?? false,
         ];
 
-        Cache::put($this->progressKey($matchCode, $playerId), $payload, now()->addMinutes(60));
+        $this->matchProgress->store($matchCode, $playerId, $payload);
         try {
             event(new OpponentProgressUpdated($matchCode, $payload));
         } catch (BroadcastException $e) {
@@ -153,7 +154,7 @@ class GameController extends Controller
 
         if (!$opponentId) return null;
 
-        return Cache::get($this->progressKey($matchCode, $opponentId));
+        return $this->matchProgress->get($matchCode, $opponentId);
     }
 
     private function currentPlayer()
@@ -173,10 +174,5 @@ class GameController extends Controller
         return $match->host_player_id === $player->id
             ? $match->guest?->username
             : $match->host?->username;
-    }
-
-    private function progressKey(string $matchCode, int $playerId): string
-    {
-        return "matches.$matchCode.players.$playerId.progress";
     }
 }
