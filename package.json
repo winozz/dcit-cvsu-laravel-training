@@ -5,7 +5,8 @@
     "scripts": {
         "build": "vite build",
         "dev": "vite",
-        "ws": "php artisan websockets:serve"
+        "ws": "php artisan websockets:serve",
+        "soketi": "npx @soketi/soketi@latest start --host 0.0.0.0 --port 6001 --app-id local-ws --key localkey --secret localsecret --debug"
     },
     "devDependencies": {
         "@tailwindcss/vite": "^4.0.0",
