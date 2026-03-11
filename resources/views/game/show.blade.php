@@ -59,7 +59,7 @@
             </div>
         </section>
 
-        <div class="grid md:grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div class="display-panel">
                 <div class="flex items-center justify-between mb-2">
                     <div class="section-title mb-0">Your Board</div>
