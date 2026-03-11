@@ -34,7 +34,9 @@ class LobbyController extends Controller
             'status' => 'waiting',
         ]);
 
-        return redirect()->route('lobby.index')->with('status', "Match {$match->code} created. Waiting for opponent...");
+        // Host immediately starts their own board; lobby entry stays joinable for opponent.
+        return redirect()->route('games.show', ['game' => 'word-quest', 'match' => $match->code])
+            ->with('status', "Room {$match->code} created. Waiting for opponent...");
     }
 
     public function join(Request $request, ChallengeGameMatch $match): RedirectResponse
