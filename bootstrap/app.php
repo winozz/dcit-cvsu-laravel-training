@@ -14,7 +14,9 @@ return Application::configure(basePath: dirname(__DIR__))
         App\Providers\ServiceBindingProvider::class,
     ])
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        $middleware->alias([
+            'player.session' => App\Http\Middleware\EnsurePlayerSession::class,
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
