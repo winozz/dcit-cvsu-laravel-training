@@ -32,7 +32,10 @@
                 <div class="card">
                     <h2>{{ $game['name'] }}</h2>
                     <p>{{ $game['description'] }}</p>
-                    <a href="{{ empty($guestMode)\n+                        ? route($game['route'], ['game' => $game['slug'] ?? \\Illuminate\\Support\\Str::slug($game['name'])])\n+                        : route('guest.games.show', ['game' => $game['slug'] ?? \\Illuminate\\Support\\Str::slug($game['name'])])\n+                    }}">Play</a>
+                    <a href="{{ empty($guestMode)
+                        ? route($game['route'], ['game' => $game['slug'] ?? \\Illuminate\\Support\\Str::slug($game['name'])])
+                        : route('guest.games.show', ['game' => $game['slug'] ?? \\Illuminate\\Support\\Str::slug($game['name'])])
+                    }}">Play</a>
                 </div>
             @endforeach
         </div>
