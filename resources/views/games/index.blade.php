@@ -22,8 +22,9 @@
                 <a class="card a" style="padding:10px 14px;background:#57f287;color:#0b1020;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('games.create') }}">Create Game</a>
                 <a class="card a" style="padding:10px 14px;background:#2a6df5;color:#fff;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('lobby.index') }}">Try PvP Multiplayer</a>
             @else
-                <span class="text-sm text-white/70">Guest mode: create/custom & PvP require sign-in.</span>
-                <a class="card a" style="padding:10px 14px;background:#2a6df5;color:#fff;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('players.login.form') }}">Sign in for PvP</a>
+                <a class="card a" style="padding:10px 14px;background:#2a6df5;color:#fff;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('players.login.form') }}">
+                    Guest mode: sign in for PvP & custom games
+                </a>
             @endif
         </div>
         <div class="grid">
