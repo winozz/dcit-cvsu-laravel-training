@@ -22,6 +22,8 @@ Route::post('logout', [PlayerAuthController::class, 'logout'])->name('players.lo
 // Guest games (no auth)
 Route::get('guest/games', [GameController::class, 'guestIndex'])->name('guest.games');
 Route::get('guest/games/{game}', [GameController::class, 'guestShow'])->name('guest.games.show');
+Route::get('guest/games/create', [GameController::class, 'guestCreate'])->name('guest.games.create');
+Route::post('guest/games', [GameController::class, 'guestStore'])->name('guest.games.store');
 
 // Lobby + matches
 Route::middleware('player.session')->group(function () {

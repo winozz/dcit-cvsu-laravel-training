@@ -23,7 +23,7 @@
                 <a class="card a" style="padding:10px 14px;background:#2a6df5;color:#fff;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('lobby.index') }}">Try PvP Multiplayer</a>
                 <a class="card a" style="padding:10px 14px;background:#8a8df9;color:#fff;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('guest.games') }}">Guest Games</a>
             @else
-                <a class="card a" style="padding:10px 14px;background:#57f287;color:#0b1020;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('players.login.form') }}">Sign in to Create Game</a>
+                <a class="card a" style="padding:10px 14px;background:#57f287;color:#0b1020;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('guest.games.create') }}">Create Game</a>
                 <a class="card a" style="padding:10px 14px;background:#2a6df5;color:#fff;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('players.login.form') }}">Sign in for PvP</a>
                 <a class="card a" style="padding:10px 14px;background:#8a8df9;color:#fff;border:2px solid #fff;border-radius:6px;box-shadow:0 4px 0 #000;font-weight:700;text-decoration:none;" href="{{ route('guest.games') }}">Continue as Guest</a>
             @endif

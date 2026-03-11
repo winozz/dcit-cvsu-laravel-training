@@ -72,6 +72,22 @@ class GameController extends Controller
         ]));
     }
 
+    public function guestCreate()
+    {
+        return view('games.create', ['guestMode' => true]);
+    }
+
+    public function guestStore(StoreGameRequest $request)
+    {
+        $validated = $request->validated();
+        $result = $this->catalogService->add($validated);
+        if (!$result['ok']) {
+            return back()->withErrors(['name' => $result['message']])->withInput();
+        }
+
+        return redirect()->route('guest.games')->with('status', 'Game added to session list.');
+    }
+
     public function index()
     {
         return view('games.index', ['games' => $this->catalogService->all()]);
