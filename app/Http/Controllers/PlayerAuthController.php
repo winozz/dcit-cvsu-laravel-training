@@ -7,6 +7,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Hash;
 
 class PlayerAuthController extends Controller
 {
@@ -17,10 +18,22 @@ class PlayerAuthController extends Controller
 
     public function login(Request $request): RedirectResponse
     {
-        $request->validate(['username' => 'required|string|min:3|max:32']);
-        $username = trim($request->string('username'));
+        $request->validate([
+            'username' => 'required|string|min:3|max:32',
+            'password' => 'required|string|min:8',
+        ]);
 
-        $player = Player::firstOrCreate(['username' => $username]);
+        $username = trim($request->string('username'));
+        $player = Player::where('username', $username)->first();
+
+        if (!$player) {
+            return redirect()->route('players.register.form')->withErrors(['username' => 'Account not found. Please create one.']);
+        }
+
+        if (!$player->password || !Hash::check($request->input('password'), $player->password)) {
+            return back()->withErrors(['password' => 'Invalid credentials.']);
+        }
+
         $token = (string) Str::uuid();
         $player->update(['session_token' => $token]);
 
