@@ -74,26 +74,21 @@
                 <div class="flex items-center justify-between mb-2">
                     <div class="section-title mb-0">Opponent Board</div>
                     @if($opponentProgress)
-                        <span class="chip">{{ $opponentProgress['timestamp'] ? 'Updated' : 'Live' }}</span>
+                        <span class="chip">Live</span>
                     @endif
                 </div>
-                @if($opponentProgress)
-                    <div class="text-lg font-mono tracking-wider">{{ $opponentProgress['display'] ?? '----' }}</div>
-                    <p class="text-white/70 text-xs mt-2">
-                        Progress: {{ $opponentProgress['tries'] ?? 0 }}/{{ $opponentProgress['maxTries'] ?? '?' }} ·
+                <div id="opponent-board" class="text-lg font-mono tracking-wider">
+                    {{ $opponentProgress['display'] ?? '----' }}
+                </div>
+                <p id="opponent-meta" class="text-white/70 text-xs mt-2">
+                    @if($opponentProgress)
+                        HP: {{ ($opponentProgress['maxTries'] ?? 0) - ($opponentProgress['tries'] ?? 0) }}/{{ $opponentProgress['maxTries'] ?? '?' }} ·
                         Found: {{ $opponentProgress['foundWordsCount'] ?? 0 }} ·
                         Used: {{ $opponentProgress['usedWordsCount'] ?? 0 }}
-                    </p>
-                    @if(!empty($opponentProgress['won']))
-                        <p class="text-[var(--green)] text-xs font-semibold mt-1">Opponent finished!</p>
-                    @elseif(!empty($opponentProgress['lost']))
-                        <p class="text-[var(--danger)] text-xs font-semibold mt-1">Opponent busted.</p>
-                    @elseif(!empty($opponentProgress['readonly']))
-                        <p class="text-white/60 text-xs mt-1">Opponent list depleted.</p>
+                    @else
+                        Waiting for opponent progress...
                     @endif
-                @else
-                    <p class="text-white/60 text-sm">Waiting for opponent progress...</p>
-                @endif
+                </p>
             </div>
         </div>
 
@@ -188,6 +183,7 @@
         const matchCode = '{{ $matchCode }}';
         const updateUrl = '{{ route('games.update', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
         const nextUrl = '{{ route('games.next', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
+        const streamUrl = matchCode ? `{{ url('matches') }}/${matchCode}/stream` : null;
         const gameSlug = '{{ $gameSlug }}';
 
         const displayEl = document.getElementById('display');
@@ -202,6 +198,8 @@
         const foundWordsCountEl = document.getElementById('found-words-count');
         const statusEl = document.getElementById('status');
         const wrongLettersEl = document.getElementById('wrong-letters');
+        const opponentBoardEl = document.getElementById('opponent-board');
+        const opponentMetaEl = document.getElementById('opponent-meta');
         const keyboard = document.getElementById('keyboard');
         const resetProgressBtn = document.getElementById('reset-progress-btn');
         const restartBtn = document.getElementById('restart-btn');
@@ -310,6 +308,35 @@
 
             updateKeyboardState(document.querySelectorAll('.key'), data);
             syncRestartButton();
+        }
+
+        // Opponent stream (SSE)
+        function applyOpponent(data) {
+            if (!opponentBoardEl || !data) return;
+            opponentBoardEl.textContent = data.display || '----';
+            const meta = [];
+            if (data.tries !== undefined && data.maxTries !== undefined) meta.push(`HP: ${data.maxTries - data.tries}/${data.maxTries}`);
+            if (data.foundWordsCount !== undefined) meta.push(`Found: ${data.foundWordsCount}`);
+            if (data.usedWordsCount !== undefined) meta.push(`Used: ${data.usedWordsCount}`);
+            opponentMetaEl.textContent = meta.join(' · ') || 'Waiting...';
+
+            opponentBoardEl.classList.toggle('win', !!data.won);
+            opponentBoardEl.classList.toggle('lose', !!data.lost);
+        }
+
+        function startOpponentStream() {
+            if (!streamUrl || !window.EventSource) return;
+            const es = new EventSource(streamUrl);
+            es.addEventListener('progress', (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    applyOpponent(data);
+                } catch (_) {}
+            });
+            es.onerror = () => {
+                es.close();
+                setTimeout(startOpponentStream, 2000); // retry
+            };
         }
 
         function updateNextButtonLabel(label) {
@@ -454,6 +481,10 @@
         });
         syncRestartButton();
         updateNextButtonLabel(state.nextLabel);
+
+        if (matchCode) {
+            startOpponentStream();
+        }
     </script>
     @endpush
 </x-app>

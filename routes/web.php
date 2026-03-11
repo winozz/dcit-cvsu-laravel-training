@@ -3,6 +3,7 @@
 use App\Http\Controllers\GameController;
 use App\Http\Controllers\LobbyController;
 use App\Http\Controllers\PlayerAuthController;
+use App\Http\Controllers\MatchProgressController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -19,6 +20,7 @@ Route::middleware('player.session')->group(function () {
     Route::get('lobby', [LobbyController::class, 'index'])->name('lobby.index');
     Route::post('lobby/matches', [LobbyController::class, 'store'])->name('lobby.store');
     Route::post('lobby/matches/{match}/join', [LobbyController::class, 'join'])->name('lobby.join');
+    Route::get('matches/{match}/stream', [MatchProgressController::class, 'stream'])->name('matches.stream');
 });
 
 // Game routes (no edit form)
