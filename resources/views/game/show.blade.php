@@ -20,6 +20,9 @@
             $playerName = $playerName ?? 'Your';
             $opponentName = $opponentName ?? 'Opponent';
             $guestMode = $guestMode ?? false;
+            $difficulty = $difficulty ?? 1;
+            $difficultyLabel = $difficultyLabel ?? 'Easy';
+            $timerRemaining = $timerRemaining ?? 120;
         @endphp
 
         <section class="surface flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -31,6 +34,12 @@
             <div class="flex flex-wrap gap-2 justify-start md:justify-end">
                 <span class="chip" aria-label="Category">Category:
                     <span id="category" class="text-white font-semibold">{{ ucfirst(str_replace('_', ' ', $category)) }}</span>
+                </span>
+                <span class="chip" aria-label="Difficulty">Difficulty:
+                    <span id="difficulty" class="text-white font-semibold">{{ $difficultyLabel }}</span>
+                </span>
+                <span class="chip bg-[var(--danger)] text-white" aria-label="Timer">
+                    Timer: <span id="timer-remaining" class="font-bold">{{ $timerRemaining }}s</span>
                 </span>
                 <span class="chip bg-[var(--accent)] text-[#0b1020] border-transparent">
                     Clue: <span id="clue" class="font-bold">{{ $clue }}</span>
@@ -209,6 +218,8 @@
         const displayEl = document.getElementById('display');
         const categoryEl = document.getElementById('category');
         const clueEl = document.getElementById('clue');
+        const difficultyEl = document.getElementById('difficulty');
+        const timerEl = document.getElementById('timer-remaining');
         const triesRemainingEl = document.getElementById('tries-remaining');
         const hpBarEl = document.getElementById('hp-bar');
         const progressCountEl = document.getElementById('progress-count');
@@ -241,6 +252,8 @@
             isReadonly: {{ ($readonly ?? false) ? 'true' : 'false' }},
         };
         if (state.isReadonly) state.gameEnded = true;
+        let timerSeconds = {{ $timerRemaining }};
+        let timerDeadline = Date.now() + (timerSeconds * 1000);
 
         const setState = (patch = {}) => Object.assign(state, patch);
 
@@ -283,10 +296,16 @@
                 restartAllowed: data.restartAllowed ?? state.restartAllowed,
                 isReadonly: !!data.readonly,
             });
+            if (typeof data.timerRemaining === 'number') {
+                timerSeconds = data.timerRemaining;
+                timerDeadline = Date.now() + (timerSeconds * 1000);
+                renderTimer();
+            }
 
             displayEl.textContent = data.display;
             categoryEl.textContent = data.category.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
             clueEl.textContent = data.clue;
+            if (difficultyEl && data.difficultyLabel) difficultyEl.textContent = data.difficultyLabel;
             triesRemainingEl.textContent = data.maxTries - data.tries;
             renderHpBar(data.maxTries, data.tries);
 
@@ -347,6 +366,16 @@
             opponentBoardEl.classList.toggle('lose', !!data.lost);
             opponentBoardEl.classList.add('pulse');
             setTimeout(() => opponentBoardEl.classList.remove('pulse'), 300);
+        }
+
+        function renderTimer() {
+            if (!timerEl) return;
+            const remainingMs = Math.max(0, timerDeadline - Date.now());
+            timerSeconds = Math.floor(remainingMs / 1000);
+            const mins = Math.floor(timerSeconds / 60);
+            const secs = timerSeconds % 60;
+            const hundredths = Math.floor((remainingMs % 1000) / 10);
+            timerEl.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${hundredths.toString().padStart(2, '0')}`;
         }
 
         let pollTimer = null;
@@ -538,6 +567,11 @@
         if (closeModalBtn && modal) closeModalBtn.addEventListener('click', closeModal);
         if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+        renderTimer();
+        setInterval(() => {
+            renderTimer();
+        }, 50);
 
         // initial keyboard state
         updateKeyboardState(document.querySelectorAll('.key'), {

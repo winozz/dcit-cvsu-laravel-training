@@ -51,7 +51,7 @@ class GameController extends Controller
     public function guestIndex()
     {
         return view('games.index', [
-            'games' => $this->catalogService->all(),
+            'games' => $this->catalogService->all(includeDefaults: false, guest: true),
             'guestMode' => true,
         ]);
     }
@@ -80,7 +80,7 @@ class GameController extends Controller
     public function guestStore(StoreGameRequest $request)
     {
         $validated = $request->validated();
-        $result = $this->catalogService->add($validated);
+        $result = $this->catalogService->add($validated, guest: true);
         if (!$result['ok']) {
             return back()->withErrors(['name' => $result['message']])->withInput();
         }
@@ -178,7 +178,13 @@ class GameController extends Controller
         }
 
         if (($gameData['won'] ?? false) || ($gameData['lost'] ?? false)) {
-            $this->matchOutcome->markProgress($matchCode, $playerId, $gameData['won'] ?? false, $gameData['lost'] ?? false);
+            $this->matchOutcome->markProgress(
+                $matchCode,
+                $playerId,
+                $gameData['won'] ?? false,
+                $gameData['lost'] ?? false,
+                $gameData['timedOut'] ?? false
+            );
         }
     }
 

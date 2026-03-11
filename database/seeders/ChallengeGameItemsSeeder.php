@@ -56,7 +56,7 @@ class ChallengeGameItemsSeeder extends Seeder
                 'word' => $item['word'],
                 'category' => $item['category'],
                 'clue' => $item['clue'],
-                'difficulty' => 1,
+                'difficulty' => $this->difficultyForWord($item['word']),
                 'max_tries' => $maxTries,
                 'is_active' => true,
                 'times_played' => 0,
@@ -71,5 +71,15 @@ class ChallengeGameItemsSeeder extends Seeder
             ['word', 'category'],
             ['clue', 'difficulty', 'max_tries', 'is_active', 'updated_at']
         );
+    }
+
+    private function difficultyForWord(string $word): int
+    {
+        $length = mb_strlen($word);
+        return match (true) {
+            $length <= 5 => 1,      // Easy
+            $length <= 8 => 2,      // Medium
+            default => 3,           // Hard
+        };
     }
 }

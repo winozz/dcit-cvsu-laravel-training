@@ -8,6 +8,7 @@ use Illuminate\Support\Str;
 class GameCatalogService implements GameCatalogContract
 {
     private const SESSION_KEY = 'custom_games';
+    private const GUEST_SESSION_KEY = 'guest_custom_games';
 
     private array $defaultGames = [
         [
@@ -19,16 +20,21 @@ class GameCatalogService implements GameCatalogContract
     ];
 
     /** @return array<int,array> */
-    public function all(): array
+    public function all(bool $includeDefaults = true, bool $guest = false): array
     {
-        return array_merge($this->defaultGames, session(self::SESSION_KEY, []));
+        $sessionKey = $guest ? self::GUEST_SESSION_KEY : self::SESSION_KEY;
+        $custom = session($sessionKey, []);
+
+        return $includeDefaults
+            ? array_merge($this->defaultGames, $custom)
+            : $custom;
     }
 
     /**
      * @param array{name?:string,slug?:string|null,description?:string|null} $data
      * @return array{ok:bool,message?:string,game?:array}
      */
-    public function add(array $data): array
+    public function add(array $data, bool $guest = false): array
     {
         $name = $data['name'] ?? '';
         $description = $data['description'] ?? '';
@@ -36,11 +42,11 @@ class GameCatalogService implements GameCatalogContract
         // Always use a UUID as the route/key identifier to avoid slug collisions.
         $uuid = (string) Str::uuid();
 
-        if ($this->existsBySlug($uuid)) {
+        if ($this->existsBySlug($uuid, $guest)) {
             return ['ok' => false, 'message' => 'ID collision occurred; try again.'];
         }
 
-        if ($this->existsByName($name)) {
+        if ($this->existsByName($name, $guest)) {
             return ['ok' => false, 'message' => 'Name is already in use.'];
         }
 
@@ -52,28 +58,30 @@ class GameCatalogService implements GameCatalogContract
             'route' => 'games.show',
         ];
 
-        $custom = session(self::SESSION_KEY, []);
+        $sessionKey = $guest ? self::GUEST_SESSION_KEY : self::SESSION_KEY;
+        $custom = session($sessionKey, []);
         $custom[] = $game;
-        session([self::SESSION_KEY => $custom]);
+        session([$sessionKey => $custom]);
 
         return ['ok' => true, 'game' => $game];
     }
 
-    public function reset(): void
+    public function reset(bool $guest = false): void
     {
-        session()->forget(self::SESSION_KEY);
+        $sessionKey = $guest ? self::GUEST_SESSION_KEY : self::SESSION_KEY;
+        session()->forget($sessionKey);
     }
 
-    private function existsBySlug(string $slug): bool
+    private function existsBySlug(string $slug, bool $guest = false): bool
     {
-        return collect($this->all())
+        return collect($this->all(guest: $guest))
             ->map(fn($game) => $game['slug'] ?? '')
             ->contains($slug);
     }
 
-    private function existsByName(string $name): bool
+    private function existsByName(string $name, bool $guest = false): bool
     {
-        return collect($this->all())
+        return collect($this->all(guest: $guest))
             ->map(fn($game) => $game['name'] ?? '')
             ->filter(fn($gameName) => strcasecmp($gameName, $name) === 0)
             ->isNotEmpty();

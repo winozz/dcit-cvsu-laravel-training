@@ -8,6 +8,7 @@ use App\Models\ChallengeGameRun;
 use App\Services\Contracts\GameServiceContract;
 use App\Services\ChallengeGameItemService;
 use App\Utilities\GameLetterUtility;
+use Illuminate\Support\Carbon;
 
 class GameService implements GameServiceContract
 {
@@ -50,10 +51,23 @@ class GameService implements GameServiceContract
      */
     public function generateChallenge(string $game): array
     {
+        $maxRounds = 15; // hard cap for testing: total words per session
         $excludedWords = array_values(array_unique(array_merge(
             session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []),
             session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), [])
         )));
+
+        // If we've already played 15 words, mark game as depleted immediately.
+        if (count($excludedWords) >= $maxRounds) {
+            $this->persistAudit($game, 'depleted');
+            session([$this->key('depleted', $game) => true]);
+            return [
+                'category' => null,
+                'word' => null,
+                'resetHistory' => false,
+                'depleted' => true,
+            ];
+        }
 
         $availableByCategory = $this->items->availableByCategory($excludedWords);
 
@@ -160,6 +174,13 @@ class GameService implements GameServiceContract
     public function buildGameData(string $game): array
     {
         $isDepleted = (bool) session($this->key('depleted', $game), false);
+        $difficulty = (int) session($this->key(ChallengeGameConstants::SESSION_DIFFICULTY, $game), 1);
+        $difficultyLabel = $this->difficultyLabel($difficulty);
+        $startedAt = session($this->key('timer_started', $game)) ?: Carbon::now();
+        session([$this->key('timer_started', $game) => $startedAt]);
+        $expiresAt = Carbon::parse($startedAt)->addMinutes(2);
+        $remainingSeconds = max(0, Carbon::now()->diffInSeconds($expiresAt, false));
+        $timedOut = Carbon::now()->gte($expiresAt);
         if ($isDepleted) {
             $usedWords = session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []);
             $foundWords = session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), []);
@@ -181,6 +202,10 @@ class GameService implements GameServiceContract
                 'restartAllowed' => false,
                 'gameSlug' => $game,
                 'readonly' => true,
+                'difficulty' => $difficulty,
+                'difficultyLabel' => $difficultyLabel,
+                'timedOut' => $timedOut,
+                'timerRemaining' => 0,
             ];
         }
 
@@ -194,15 +219,21 @@ class GameService implements GameServiceContract
         $restartAllowed = !$this->hasGuesses($game);
         $clue = $this->items->clue($category, $word);
         $maxTries = $this->items->maxTries($category, $word);
+        $difficulty = (int) session($this->key(ChallengeGameConstants::SESSION_DIFFICULTY, $game), 1);
+        $difficultyLabel = $this->difficultyLabel($difficulty);
         $display = GameLetterUtility::buildDisplay($word, $correct);
+        if ($timedOut) {
+            // force a loss when time runs out
+            $tries = $maxTries;
+        }
 
         return [
             'word' => $word,
             'category' => $category,
             'clue' => $clue,
             'display' => $display,
-            'won' => !str_contains($display, '_'),
-            'lost' => $tries >= $maxTries,
+            'won' => !$timedOut && !str_contains($display, '_'),
+            'lost' => $timedOut || $tries >= $maxTries,
             'tries' => $tries,
             'correct' => $correct,
             'wrong' => $wrong,
@@ -214,6 +245,10 @@ class GameService implements GameServiceContract
             'restartAllowed' => $restartAllowed,
             'gameSlug' => $game,
             'readonly' => false,
+            'difficulty' => $difficulty,
+            'difficultyLabel' => $difficultyLabel,
+            'timedOut' => $timedOut,
+            'timerRemaining' => $timedOut ? 0 : $remainingSeconds,
         ];
     }
 
@@ -235,6 +270,7 @@ class GameService implements GameServiceContract
         $category = $challenge['category'];
         $word = $challenge['word'];
         $maxTries = $this->items->maxTries($category, $word);
+        $difficulty = $this->items->difficulty($category, $word);
 
         session([
             $this->key(ChallengeGameConstants::SESSION_WORD, $game) => $word,
@@ -242,6 +278,8 @@ class GameService implements GameServiceContract
             $this->key(ChallengeGameConstants::SESSION_CORRECT, $game) => [],
             $this->key(ChallengeGameConstants::SESSION_WRONG, $game) => [],
             $this->key('max_tries', $game) => $maxTries,
+            $this->key(ChallengeGameConstants::SESSION_DIFFICULTY, $game) => $difficulty,
+            $this->key('timer_started', $game) => Carbon::now(),
         ]);
 
         $this->appendUniqueSessionWord(ChallengeGameConstants::SESSION_USED_WORDS, $word, $game);
@@ -303,6 +341,15 @@ class GameService implements GameServiceContract
         $prefix = $playerId ? "players.$playerId." : '';
 
         return "{$prefix}games.$game.$base";
+    }
+
+    private function difficultyLabel(int $difficulty): string
+    {
+        return match ($difficulty) {
+            2 => 'Medium',
+            3 => 'Hard',
+            default => 'Easy',
+        };
     }
 
     private function hasGuesses(string $game): bool

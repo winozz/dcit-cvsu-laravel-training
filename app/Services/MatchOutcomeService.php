@@ -7,6 +7,7 @@ use App\Models\Player;
 use Illuminate\Support\Carbon;
 use App\Services\MatchProgressService;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class MatchOutcomeService
 {
@@ -14,7 +15,7 @@ class MatchOutcomeService
     {
     }
 
-    public function markProgress(?string $matchCode, int $playerId, bool $won, bool $lost): void
+    public function markProgress(?string $matchCode, int $playerId, bool $won, bool $lost, bool $timedOut = false): void
     {
         if (!$matchCode) return;
         $match = ChallengeGameMatch::where('code', $matchCode)->first();
@@ -26,13 +27,18 @@ class MatchOutcomeService
 
         $result = $won ? 'won' : 'lost';
         $fields = [];
-        if ($match->host_player_id === $playerId && !$match->host_done) {
-            $fields['host_done'] = true;
+        if ($match->host_player_id === $playerId) {
             $fields['host_result'] = $result;
+            // Mark done on win or timeout-triggered loss
+            if (($won || $timedOut) && !$match->host_done) {
+                $fields['host_done'] = true;
+            }
         }
-        if ($match->guest_player_id === $playerId && !$match->guest_done) {
-            $fields['guest_done'] = true;
+        if ($match->guest_player_id === $playerId) {
             $fields['guest_result'] = $result;
+            if (($won || $timedOut) && !$match->guest_done) {
+                $fields['guest_done'] = true;
+            }
         }
         if ($fields) {
             $match->fill($fields);
@@ -70,6 +76,10 @@ class MatchOutcomeService
         if (!$match->expires_at && $match->host_player_id && $match->guest_player_id && $match->status === 'active') {
             $match->expires_at = Carbon::now()->addMinutes(2);
             $match->save();
+            Log::info('Match timer started', [
+                'match' => $match->code,
+                'expires_at' => $match->expires_at,
+            ]);
         }
 
         if (!$match->expires_at) return;
@@ -87,6 +97,12 @@ class MatchOutcomeService
             $match->guest_result = 'forfeit';
         }
         $match->save();
+        Log::warning('Match expired after timer', [
+            'match' => $match->code,
+            'expires_at' => $match->expires_at,
+            'host_done' => $match->host_done,
+            'guest_done' => $match->guest_done,
+        ]);
     }
 
     private function finalizeIfReady(ChallengeGameMatch $match, bool $force = false): void
@@ -103,6 +119,15 @@ class MatchOutcomeService
         $match->status = 'finished';
         $match->ended_at = Carbon::now();
         $match->save();
+        Log::info('Match finalized', [
+            'match' => $match->code,
+            'winner' => $winner,
+            'host_result' => $match->host_result,
+            'guest_result' => $match->guest_result,
+            'host_forfeit' => $match->host_forfeit,
+            'guest_forfeit' => $match->guest_forfeit,
+            'force' => $force,
+        ]);
 
         $this->applyStats($match, $winner);
         $this->clearProgressCaches($match);

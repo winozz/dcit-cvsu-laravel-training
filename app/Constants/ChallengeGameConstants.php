@@ -12,6 +12,7 @@ final class ChallengeGameConstants
     public const SESSION_WRONG = 'wrong';
     public const SESSION_USED_WORDS = 'used_words';
     public const SESSION_FOUND_WORDS = 'found_words';
+    public const SESSION_DIFFICULTY = 'difficulty';
     public const DEFAULT_CLUE = 'No clue available.';
 
     public const SESSION_KEYS = [
@@ -19,5 +20,6 @@ final class ChallengeGameConstants
         self::SESSION_CATEGORY,
         self::SESSION_CORRECT,
         self::SESSION_WRONG,
+        self::SESSION_DIFFICULTY,
     ];
 }
