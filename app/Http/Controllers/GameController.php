@@ -97,7 +97,7 @@ class GameController extends Controller
         if (!$matchCode || !$playerId) return;
 
         $payload = [
-            'timestamp' => now()->timestamp,
+            'version' => (int) (microtime(true) * 1000), // ms precision to avoid same-second collisions
             'display' => $gameData['display'] ?? '',
             'tries' => $gameData['tries'] ?? 0,
             'maxTries' => $gameData['maxTries'] ?? 0,

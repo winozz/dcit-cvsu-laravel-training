@@ -29,7 +29,7 @@ class MatchProgressController extends Controller
             // Run a short-lived loop; client will reconnect.
             for ($i = 0; $i < 60; $i++) {
                 $progress = Cache::get($cacheKey);
-                $ts = (int) ($progress['timestamp'] ?? 0);
+                $ts = (int) ($progress['version'] ?? 0);
 
                 if ($progress && $ts !== $lastEventId) {
                     $payload = json_encode($progress);

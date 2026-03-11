@@ -323,6 +323,8 @@
 
             opponentBoardEl.classList.toggle('win', !!data.won);
             opponentBoardEl.classList.toggle('lose', !!data.lost);
+            opponentBoardEl.classList.add('pulse');
+            setTimeout(() => opponentBoardEl.classList.remove('pulse'), 300);
         }
 
         let pollTimer = null;
@@ -353,7 +355,7 @@
             clearInterval(pollTimer);
             pollTimer = setInterval(async () => {
                 await fetchOpponentOnce();
-            }, 800);
+            }, 400);
         }
 
         async function fetchOpponentOnce() {
