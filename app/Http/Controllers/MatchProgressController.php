@@ -116,7 +116,9 @@ class MatchProgressController extends Controller
         $playerId = $request->session()->get('player_id');
         if (!$playerId) abort(403);
 
-        if ($match->status !== 'finished') {
+        // Only count as forfeit if an opponent exists and match is active
+        $hasOpponent = ($match->host_player_id && $match->guest_player_id);
+        if ($match->status !== 'finished' && $hasOpponent) {
             $this->matchOutcome->forfeit($match->code, $playerId);
         }
 

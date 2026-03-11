@@ -17,5 +17,6 @@
             <button class="btn green w-full" type="submit">Enter Lobby</button>
         </form>
         <p class="text-sm text-white/70">New here? <a class="text-[var(--accent)]" href="{{ route('players.register.form') }}">Create an account</a></p>
+        <p class="text-sm text-white/70">Just want to try it? <a class="text-[var(--accent)]" href="{{ route('guest.games') }}">Continue as guest</a></p>
     </div>
 </x-app>
