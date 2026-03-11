@@ -22,7 +22,7 @@
                 @if($activeMatch)
                     <p class="text-sm text-white/70 mb-2">Status: {{ ucfirst($activeMatch->status) }}</p>
                     <p class="text-sm text-white/70 mb-2">Opponent: {{ optional($activeMatch->host_player_id === $player->id ? $activeMatch->guest : $activeMatch->host)->username ?? 'Waiting...' }}</p>
-                    <a class="btn green w-full" href="{{ route('games.show', ['game' => 'word-quest']) }}">Play Your Board</a>
+                    <a class="btn green w-full" href="{{ route('games.show', ['game' => 'word-quest', 'match' => $activeMatch->code]) }}">Play Your Board</a>
                 @else
                     <p class="text-sm text-white/70 mb-3">Create a room and wait for an opponent.</p>
                     <form method="POST" action="{{ route('lobby.store') }}">

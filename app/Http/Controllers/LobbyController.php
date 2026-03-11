@@ -51,7 +51,8 @@ class LobbyController extends Controller
             'status' => 'active',
         ]);
 
-        return redirect()->route('lobby.index')->with('status', "Joined match {$match->code}. Game on!");
+        return redirect()->route('games.show', ['game' => 'word-quest', 'match' => $match->code])
+            ->with('status', "Joined match {$match->code}. Game on!");
     }
 
     private function player(Request $request): Player
