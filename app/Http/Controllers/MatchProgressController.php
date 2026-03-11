@@ -60,10 +60,21 @@ class MatchProgressController extends Controller
         $playerId = $request->session()->get('player_id');
         if (!$playerId) abort(403);
 
+        $since = (int) $request->query('since', 0);
         $opponentId = $match->host_player_id === $playerId ? $match->guest_player_id : $match->host_player_id;
         if (!$opponentId) return response()->json([], 204);
 
-        $progress = Cache::get($this->progressKey($match->code, $opponentId));
-        return $progress ? response()->json($progress) : response()->json([], 204);
+        $cacheKey = $this->progressKey($match->code, $opponentId);
+
+        // Simple long-poll: wait up to ~10 seconds for a newer version
+        for ($i = 0; $i < 20; $i++) {
+            $progress = Cache::get($cacheKey);
+            if ($progress && ($progress['version'] ?? 0) > $since) {
+                return response()->json($progress);
+            }
+            usleep(500_000); // 0.5s
+        }
+
+        return response()->json([], 204);
     }
 }
