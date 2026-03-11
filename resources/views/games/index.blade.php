@@ -33,8 +33,8 @@
                     <h2>{{ $game['name'] }}</h2>
                     <p>{{ $game['description'] }}</p>
                     <a href="{{ empty($guestMode)
-                        ? route($game['route'], ['game' => $game['slug'] ?? Illuminate\\Support\\Str::slug($game['name'])])
-                        : route('guest.games.show', ['game' => $game['slug'] ?? Illuminate\\Support\\Str::slug($game['name'])])
+                        ? route($game['route'], ['game' => $game['slug'] ?? \Illuminate\Support\Str::slug($game['name'])])
+                        : route('guest.games.show', ['game' => $game['slug'] ?? \Illuminate\Support\Str::slug($game['name'])])
                     }}">Play</a>
                 </div>
             @endforeach
