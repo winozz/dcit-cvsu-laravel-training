@@ -16,6 +16,12 @@ class ChallengeGameMatch extends Model
         'status',
     ];
 
+    public function getRouteKeyName(): string
+    {
+        // Allow implicit route-model binding by match code instead of numeric id.
+        return 'code';
+    }
+
     public function host()
     {
         return $this->belongsTo(Player::class, 'host_player_id');
