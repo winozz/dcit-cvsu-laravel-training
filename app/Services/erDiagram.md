@@ -8,7 +8,8 @@ erDiagram
         uint wins
         uint losses
         uint games_played
-        timestamps
+        datetime created_at
+        datetime updated_at
     }
 
     CHALLENGE_GAME_MATCHES {
@@ -25,7 +26,8 @@ erDiagram
         string guest_result
         timestamp expires_at
         timestamp ended_at
-        timestamps
+        datetime created_at
+        datetime updated_at
     }
 
     CHALLENGE_GAME_ITEMS {
@@ -38,7 +40,8 @@ erDiagram
         bool is_active
         int times_played
         int times_solved
-        timestamps
+        datetime created_at
+        datetime updated_at
     }
 
     CHALLENGE_GAME_RUNS {
@@ -53,16 +56,18 @@ erDiagram
         json wrong
         json used_words
         json found_words
-        timestamps
+        datetime created_at
+        datetime updated_at
     }
 
     CHALLENGE_GAME_AUDITS {
         bigint id PK
         string game_slug
-        string status  // e.g., depleted
+        string status
         json used_words
         json found_words
-        timestamps
+        datetime created_at
+        datetime updated_at
     }
 
     PLAYERS ||--o{ CHALLENGE_GAME_MATCHES : hosts
