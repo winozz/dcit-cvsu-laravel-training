@@ -54,4 +54,16 @@ class MatchProgressController extends Controller
     {
         return "matches.$matchCode.players.$playerId.progress";
     }
+
+    public function opponent(Request $request, ChallengeGameMatch $match)
+    {
+        $playerId = $request->session()->get('player_id');
+        if (!$playerId) abort(403);
+
+        $opponentId = $match->host_player_id === $playerId ? $match->guest_player_id : $match->host_player_id;
+        if (!$opponentId) return response()->json([], 204);
+
+        $progress = Cache::get($this->progressKey($match->code, $opponentId));
+        return $progress ? response()->json($progress) : response()->json([], 204);
+    }
 }

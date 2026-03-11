@@ -66,6 +66,7 @@ class GameController extends Controller
         $this->gameService->restartGame($game);
         $gameData = $this->gameService->buildGameData($game);
 
+        $this->storeLiveSnapshot($gameData, $request->query('match'));
         if ($request->expectsJson()) {
             // Avoid leaking the answer on fresh rounds.
             unset($gameData['word']);

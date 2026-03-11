@@ -21,6 +21,7 @@ Route::middleware('player.session')->group(function () {
     Route::post('lobby/matches', [LobbyController::class, 'store'])->name('lobby.store');
     Route::post('lobby/matches/{match}/join', [LobbyController::class, 'join'])->name('lobby.join');
     Route::get('matches/{match}/stream', [MatchProgressController::class, 'stream'])->name('matches.stream');
+    Route::get('matches/{match}/opponent', [MatchProgressController::class, 'opponent'])->name('matches.opponent');
 });
 
 // Game routes (no edit form)

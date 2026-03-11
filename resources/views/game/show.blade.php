@@ -184,6 +184,7 @@
         const updateUrl = '{{ route('games.update', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
         const nextUrl = '{{ route('games.next', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
         const streamUrl = matchCode ? `{{ url('matches') }}/${matchCode}/stream` : null;
+        const opponentUrl = matchCode ? `{{ url('matches') }}/${matchCode}/opponent` : null;
         const gameSlug = '{{ $gameSlug }}';
 
         const displayEl = document.getElementById('display');
@@ -324,19 +325,39 @@
             opponentBoardEl.classList.toggle('lose', !!data.lost);
         }
 
+        let pollTimer = null;
+
         function startOpponentStream() {
-            if (!streamUrl || !window.EventSource) return;
-            const es = new EventSource(streamUrl);
-            es.addEventListener('progress', (event) => {
+            if (!streamUrl) return startOpponentPoll();
+            if (window.EventSource) {
+                const es = new EventSource(streamUrl);
+                es.addEventListener('progress', (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        applyOpponent(data);
+                    } catch (_) {}
+                });
+                es.onerror = () => {
+                    es.close();
+                    startOpponentPoll();
+                };
+            } else {
+                startOpponentPoll();
+            }
+        }
+
+        function startOpponentPoll() {
+            if (!opponentUrl) return;
+            clearInterval(pollTimer);
+            pollTimer = setInterval(async () => {
                 try {
-                    const data = JSON.parse(event.data);
+                    const res = await fetch(opponentUrl, { headers: { 'Accept': 'application/json' }});
+                    if (res.status === 204) return;
+                    if (!res.ok) return;
+                    const data = await res.json();
                     applyOpponent(data);
                 } catch (_) {}
-            });
-            es.onerror = () => {
-                es.close();
-                setTimeout(startOpponentStream, 2000); // retry
-            };
+            }, 1200);
         }
 
         function updateNextButtonLabel(label) {
