@@ -110,7 +110,7 @@ class GameController extends Controller
         ];
 
         Cache::put($this->progressKey($matchCode, $playerId), $payload, now()->addMinutes(60));
-        OpponentProgressUpdated::dispatch($matchCode, $payload);
+        event(new OpponentProgressUpdated($matchCode, $payload));
     }
 
     private function opponentProgress(?string $matchCode): ?array
