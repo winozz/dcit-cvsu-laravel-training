@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\PlayerVerificationRequested;
 use App\Models\Player;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,25 +19,42 @@ class PlayerAuthController extends Controller
 
     public function login(Request $request): RedirectResponse
     {
+        $username = trim((string) $request->string('username'));
+
+        $request->merge([
+            'username' => $username,
+        ]);
+
         $request->validate([
             'username' => 'required|string|min:3|max:32',
             'password' => 'required|string|min:8',
         ]);
 
-        $username = trim($request->string('username'));
-        $player = Player::where('username', $username)->first();
+        $player = Player::query()
+            ->whereRaw('lower(username) = ?', [Str::lower($username)])
+            ->first();
 
         if (!$player) {
             return redirect()->route('players.register.form')->withErrors(['username' => 'Account not found. Please create one.']);
         }
 
-        if (!$player->password || !Hash::check($request->input('password'), $player->password)) {
+        if (!Hash::check($request->input('password'), $player->password)) {
             return back()->withErrors(['password' => 'Invalid credentials.']);
+        }
+
+        if ($player->requiresEmailVerification()) {
+            $request->session()->forget(['player_id', 'player_token']);
+            $request->session()->put('pending_player_id', $player->id);
+            event(new PlayerVerificationRequested($player));
+
+            return redirect()->route('players.verification.notice')
+                ->with('status', 'Verify your email first. We sent a fresh OTP to your inbox.');
         }
 
         $token = (string) Str::uuid();
         $player->update(['session_token' => $token]);
 
+        $request->session()->forget('pending_player_id');
         $request->session()->put('player_id', $player->id);
         $request->session()->put('player_token', $token);
 

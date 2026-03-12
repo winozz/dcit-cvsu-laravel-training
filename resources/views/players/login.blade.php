@@ -1,6 +1,7 @@
 <x-app title="Join Word Quest Lobby">
     <div class="surface max-w-md mx-auto space-y-4">
         <h2 class="text-xl font-bold">Sign In</h2>
+        <x-flash />
         @if($errors->any())
             <div class="p-3 bg-red-900/30 border border-red-700 rounded text-sm text-red-200">
                 {{ $errors->first() }}
