@@ -23,6 +23,7 @@
 
             <button class="btn green w-full" type="submit">Create Account</button>
         </form>
+        <a class="btn secondary w-full text-center block" href="{{ route('players.google.redirect') }}">Sign up with Google</a>
         <p class="text-sm text-white/70">We will send a 6-digit OTP to verify your email before you can enter the lobby.</p>
         <p class="text-sm text-white/70">Already registered? <a class="text-[var(--accent)]" href="{{ route('players.login.form') }}">Sign in</a></p>
     </div>

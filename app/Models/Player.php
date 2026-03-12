@@ -14,6 +14,7 @@ class Player extends Model
         'public_id',
         'username',
         'email',
+        'google_id',
         'email_verified_at',
         'email_verification_code',
         'email_verification_expires_at',

@@ -38,6 +38,10 @@ class PlayerAuthController extends Controller
             return redirect()->route('players.register.form')->withErrors(['username' => 'Account not found. Please create one.']);
         }
 
+        if (!$player->password) {
+            return back()->withErrors(['password' => 'This account uses Google sign-in. Use Continue with Google.']);
+        }
+
         if (!Hash::check($request->input('password'), $player->password)) {
             return back()->withErrors(['password' => 'Invalid credentials.']);
         }

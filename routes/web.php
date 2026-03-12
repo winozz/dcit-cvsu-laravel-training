@@ -4,6 +4,7 @@ use App\Http\Controllers\GameController;
 use App\Http\Controllers\LobbyController;
 use App\Http\Controllers\PlayerAuthController;
 use App\Http\Controllers\PlayerEmailVerificationController;
+use App\Http\Controllers\PlayerGoogleAuthController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\MatchProgressController;
 use Illuminate\Support\Facades\Route;
@@ -18,6 +19,8 @@ Route::get('login', [PlayerAuthController::class, 'showLogin'])->middleware(['th
 Route::post('login', [PlayerAuthController::class, 'login'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.login');
 Route::get('register', [RegistrationController::class, 'create'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.register.form');
 Route::post('register', [RegistrationController::class, 'store'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.register');
+Route::get('auth/google/redirect', [PlayerGoogleAuthController::class, 'redirect'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.google.redirect');
+Route::get('auth/google/callback', [PlayerGoogleAuthController::class, 'callback'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.google.callback');
 Route::get('verify-email', [PlayerEmailVerificationController::class, 'show'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.verification.notice');
 Route::post('verify-email', [PlayerEmailVerificationController::class, 'verify'])->middleware(['throttle:60,1','no.concurrent.login'])->name('players.verification.verify');
 Route::post('verify-email/resend', [PlayerEmailVerificationController::class, 'resend'])->middleware(['throttle:10,1','no.concurrent.login'])->name('players.verification.resend');
