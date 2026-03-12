@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\ChallengeGameMatch;
+use App\Models\Player;
 use App\Services\MatchOutcomeService;
 use App\Services\MatchProgressService;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -19,12 +21,10 @@ class MatchProgressController extends Controller
     {
         // Prevent long-running SSE from hitting the default 30s PHP timeout.
         set_time_limit(0);
-        $playerId = $request->session()->get('player_id');
-        if (!$playerId) {
-            abort(403);
-        }
+        $player = $this->playerFromSession($request);
+        Gate::forUser($player)->authorize('access', $match);
 
-        $opponentId = $match->host_player_id === $playerId ? $match->guest_player_id : $match->host_player_id;
+        $opponentId = $match->host_player_id === $player->id ? $match->guest_player_id : $match->host_player_id;
         if (!$opponentId) {
             // No opponent yet; return quickly to allow client retry.
             return response()->noContent(204);
@@ -60,22 +60,22 @@ class MatchProgressController extends Controller
 
     public function opponent(Request $request, ChallengeGameMatch $match)
     {
-        $playerId = $request->session()->get('player_id');
-        if (!$playerId) abort(403);
+        $player = $this->playerFromSession($request);
+        Gate::forUser($player)->authorize('access', $match);
 
-        $opponentId = $match->host_player_id === $playerId ? $match->guest_player_id : $match->host_player_id;
+        $opponentId = $match->host_player_id === $player->id ? $match->guest_player_id : $match->host_player_id;
         if (!$opponentId) return response()->json([], 204);
 
         $cacheKey = $this->matchProgress->key($match->code, $opponentId);
 
         // Enforce expiry timers on each poll and reload match status
-        $this->matchOutcome->markProgress($match->code, $playerId, false, false);
+        $this->matchOutcome->markProgress($match->code, $player->id, false, false);
         $match->refresh();
 
         // If match is finished, clear any stale opponent cache and return empty
         if ($match->status === 'finished') {
             $this->matchProgress->forget($match->code, $opponentId);
-            $this->matchProgress->forget($match->code, $playerId);
+            $this->matchProgress->forget($match->code, $player->id);
             return response()->json([], 204);
         }
 
@@ -85,21 +85,21 @@ class MatchProgressController extends Controller
 
     public function forfeit(Request $request, ChallengeGameMatch $match): RedirectResponse
     {
-        $playerId = $request->session()->get('player_id');
-        if (!$playerId) abort(403);
+        $player = $this->playerFromSession($request);
+        Gate::forUser($player)->authorize('access', $match);
 
-        $this->matchOutcome->forfeit($match->code, $playerId);
+        $this->matchOutcome->forfeit($match->code, $player->id);
 
         return redirect()->route('lobby.index')->with('status', 'You forfeited this match.');
     }
 
     public function status(Request $request, ChallengeGameMatch $match)
     {
-        $playerId = $request->session()->get('player_id');
-        if (!$playerId) abort(403);
+        $player = $this->playerFromSession($request);
+        Gate::forUser($player)->authorize('access', $match);
 
         // Apply expiry on each status check
-        $this->matchOutcome->markProgress($match->code, $playerId, false, false);
+        $this->matchOutcome->markProgress($match->code, $player->id, false, false);
         $match->refresh();
 
         return response()->json([
@@ -113,15 +113,23 @@ class MatchProgressController extends Controller
 
     public function exit(Request $request, ChallengeGameMatch $match): RedirectResponse
     {
-        $playerId = $request->session()->get('player_id');
-        if (!$playerId) abort(403);
+        $player = $this->playerFromSession($request);
+        Gate::forUser($player)->authorize('access', $match);
 
         // Only count as forfeit if an opponent exists and match is active
         $hasOpponent = ($match->host_player_id && $match->guest_player_id);
         if ($match->status !== 'finished' && $hasOpponent) {
-            $this->matchOutcome->forfeit($match->code, $playerId);
+            $this->matchOutcome->forfeit($match->code, $player->id);
         }
 
         return redirect()->route('lobby.index')->with('status', 'Returned to lobby.');
+    }
+
+    private function playerFromSession(Request $request): Player
+    {
+        $playerId = $request->session()->get('player_id');
+        abort_if(!$playerId, 403);
+
+        return Player::findOrFail($playerId);
     }
 }
