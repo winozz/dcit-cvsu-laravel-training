@@ -2,10 +2,10 @@
 
 namespace App\Services;
 
-use App\Services\Contracts\GameCatalogContract;
+use App\Services\Contracts\GameCatalogInterface;
 use Illuminate\Support\Str;
 
-class GameCatalogService implements GameCatalogContract
+class GameCatalogService implements GameCatalogInterface
 {
     private const SESSION_KEY = 'custom_games';
     private const GUEST_SESSION_KEY = 'guest_custom_games';

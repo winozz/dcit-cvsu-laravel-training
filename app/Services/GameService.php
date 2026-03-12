@@ -5,12 +5,12 @@ namespace App\Services;
 use App\Constants\ChallengeGameConstants;
 use App\Models\ChallengeGameAudit;
 use App\Models\ChallengeGameRun;
-use App\Services\Contracts\GameServiceContract;
+use App\Services\Contracts\GameServiceInterface;
 use App\Services\ChallengeGameItemService;
 use App\Utilities\GameLetterUtility;
 use Illuminate\Support\Carbon;
 
-class GameService implements GameServiceContract
+class GameService implements GameServiceInterface
 {
     public function __construct(
         private readonly ChallengeGameItemService $items

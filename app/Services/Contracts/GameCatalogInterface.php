@@ -2,7 +2,7 @@
 
 namespace App\Services\Contracts;
 
-interface GameCatalogContract
+interface GameCatalogInterface
 {
     /** @return array<int,array> */
     public function all(bool $includeDefaults = true, bool $guest = false): array;

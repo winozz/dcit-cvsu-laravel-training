@@ -6,8 +6,8 @@ use App\Http\Requests\StoreGameRequest;
 use App\Models\ChallengeGameMatch;
 use App\Services\MatchOutcomeService;
 use App\Services\MatchProgressService;
-use App\Services\Contracts\GameCatalogContract;
-use App\Services\Contracts\GameServiceContract;
+use App\Services\Contracts\GameCatalogInterface;
+use App\Services\Contracts\GameServiceInterface;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Broadcasting\BroadcastException;
@@ -16,8 +16,8 @@ use App\Events\OpponentProgressUpdated;
 class GameController extends Controller
 {
     public function __construct(
-        private readonly GameServiceContract $gameService,
-        private readonly GameCatalogContract $catalogService,
+        private readonly GameServiceInterface $gameService,
+        private readonly GameCatalogInterface $catalogService,
         private readonly MatchOutcomeService $matchOutcome,
         private readonly MatchProgressService $matchProgress,
     )

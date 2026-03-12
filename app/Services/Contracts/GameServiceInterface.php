@@ -2,7 +2,7 @@
 
 namespace App\Services\Contracts;
 
-interface GameServiceContract
+interface GameServiceInterface
 {
     public function handleTurn(bool $resetProgress, bool $restart, ?string $letter, string $game): array;
     public function ensureGameStarted(string $game): void;
