@@ -2,20 +2,22 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\ChallengeGameMatchStatus;
 use App\Models\ChallengeGameMatch;
 use App\Models\Player;
-use App\Services\GameService;
+use App\Services\Contracts\GameServiceInterface;
 use App\Services\MatchProgressService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\View\View;
 use Illuminate\Support\Str;
 
 class LobbyController extends Controller
 {
     public function __construct(
-        private readonly GameService $gameService,
+        private readonly GameServiceInterface $gameService,
         private readonly MatchProgressService $matchProgress,
     ) {}
 
@@ -24,7 +26,7 @@ class LobbyController extends Controller
         $player = $this->player($request);
         $activeMatch = $this->currentMatch($player);
         $waitingMatches = ChallengeGameMatch::with(['host', 'guest'])
-            ->where('status', 'waiting')
+            ->where('status', ChallengeGameMatchStatus::Waiting->value)
             ->latest()
             ->get();
 
@@ -33,7 +35,7 @@ class LobbyController extends Controller
                 'waiting' => $waitingMatches->map(fn ($m) => [
                     'code' => $m->code,
                     'host' => $m->host?->username,
-                    'status' => $m->status,
+                    'status' => $m->status->value,
                 ])->values(),
                 'active_match_code' => $activeMatch?->code,
             ]);
@@ -45,18 +47,14 @@ class LobbyController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $player = $this->player($request);
-        // Clear any lingering progress caches from a previous match for this player
-        $prevMatch = session('current_match_code');
-        if ($prevMatch) {
-            Cache::forget($this->matchProgress->key($prevMatch, $player->id));
-        }
+        $this->clearPreviousMatchProgress($player);
 
         $code = strtoupper(Str::random(6));
 
         $match = ChallengeGameMatch::create([
             'code' => $code,
             'host_player_id' => $player->id,
-            'status' => 'waiting',
+            'status' => ChallengeGameMatchStatus::Waiting,
             'expires_at' => null, // timer starts once an opponent joins
         ]);
 
@@ -72,19 +70,15 @@ class LobbyController extends Controller
     public function join(Request $request, ChallengeGameMatch $match): RedirectResponse
     {
         $player = $this->player($request);
-        if ($match->guest_player_id || $match->host_player_id === $player->id) {
+        if (!Gate::forUser($player)->allows('join', $match)) {
             return redirect()->route('lobby.index')->withErrors(['join' => 'Match is not joinable.']);
         }
 
-        // Clear stale cache from previous match for this player
-        $prevMatch = session('current_match_code');
-        if ($prevMatch) {
-            Cache::forget($this->matchProgress->key($prevMatch, $player->id));
-        }
+        $this->clearPreviousMatchProgress($player);
 
         $match->update([
             'guest_player_id' => $player->id,
-            'status' => 'active',
+            'status' => ChallengeGameMatchStatus::Active,
             'expires_at' => now()->addMinutes(2), // 2-minute match timer
         ]);
 
@@ -101,6 +95,16 @@ class LobbyController extends Controller
         return Player::findOrFail($request->session()->get('player_id'));
     }
 
+    private function clearPreviousMatchProgress(Player $player): void
+    {
+        $previousMatchCode = session('current_match_code');
+        if (!$previousMatchCode) {
+            return;
+        }
+
+        Cache::forget($this->matchProgress->key($previousMatchCode, $player->id));
+    }
+
     private function currentMatch(Player $player): ?ChallengeGameMatch
     {
         return ChallengeGameMatch::with(['host', 'guest'])
@@ -108,7 +112,7 @@ class LobbyController extends Controller
                 $q->where('host_player_id', $player->id)
                   ->orWhere('guest_player_id', $player->id);
             })
-            ->whereNot('status', 'finished')
+            ->whereNot('status', ChallengeGameMatchStatus::Finished->value)
             ->latest()
             ->first();
     }

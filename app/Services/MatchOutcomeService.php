@@ -2,79 +2,57 @@
 
 namespace App\Services;
 
+use App\Enums\ChallengeGameMatchResult;
+use App\Enums\ChallengeGameMatchStatus;
 use App\Models\ChallengeGameMatch;
 use App\Models\Player;
-use Illuminate\Support\Carbon;
 use App\Services\MatchProgressService;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class MatchOutcomeService
 {
+    private const MATCH_EXPIRY_MINUTES = 2;
+
     public function __construct(private readonly MatchProgressService $progress)
     {
     }
 
     public function markProgress(?string $matchCode, int $playerId, bool $won, bool $lost, bool $timedOut = false): void
     {
-        if (!$matchCode) return;
-        $match = ChallengeGameMatch::where('code', $matchCode)->first();
-        if (!$match || $match->status === 'finished') return;
+        $match = $this->activeMatch($matchCode);
+        if (!$match) return;
 
         $this->applyExpiry($match);
 
-        if ($match->status === 'finished' || (!$won && !$lost)) return;
+        if ($match->status === ChallengeGameMatchStatus::Finished || (!$won && !$lost)) return;
 
-        $result = $won ? 'won' : 'lost';
-        $fields = [];
-        if ($match->host_player_id === $playerId) {
-            $fields['host_result'] = $result;
-            // Mark done on win or timeout-triggered loss
-            if (($won || $timedOut) && !$match->host_done) {
-                $fields['host_done'] = true;
-            }
-        }
-        if ($match->guest_player_id === $playerId) {
-            $fields['guest_result'] = $result;
-            if (($won || $timedOut) && !$match->guest_done) {
-                $fields['guest_done'] = true;
-            }
-        }
-        if ($fields) {
-            $match->fill($fields);
-            $match->save();
-        }
+        $result = $won ? ChallengeGameMatchResult::Won : ChallengeGameMatchResult::Lost;
+        $this->applyPlayerResult($match, $playerId, $result, $won || $timedOut);
 
         $this->finalizeIfReady($match);
     }
 
     public function forfeit(?string $matchCode, int $playerId): void
     {
-        if (!$matchCode) return;
-        $match = ChallengeGameMatch::where('code', $matchCode)->first();
-        if (!$match || $match->status === 'finished') return;
+        $match = $this->activeMatch($matchCode);
+        if (!$match) return;
 
-        if ($match->host_player_id === $playerId) {
-            $match->host_forfeit = true;
-            $match->host_done = true;
-            $match->host_result = 'forfeit';
-        }
-        if ($match->guest_player_id === $playerId) {
-            $match->guest_forfeit = true;
-            $match->guest_done = true;
-            $match->guest_result = 'forfeit';
-        }
-        $match->save();
+        $this->applyPlayerResult($match, $playerId, ChallengeGameMatchResult::Forfeit, true, true);
         $this->finalizeIfReady($match, true);
     }
 
     private function applyExpiry(ChallengeGameMatch $match): void
     {
-        if ($match->status === 'finished') return;
+        if ($match->status === ChallengeGameMatchStatus::Finished) return;
 
         // Start the 2-minute timer the first time both seats are filled and timer is empty.
-        if (!$match->expires_at && $match->host_player_id && $match->guest_player_id && $match->status === 'active') {
-            $match->expires_at = Carbon::now()->addMinutes(2);
+        if (!$match->expires_at
+            && $match->host_player_id
+            && $match->guest_player_id
+            && $match->status === ChallengeGameMatchStatus::Active) {
+            $match->expires_at = Carbon::now()->addMinutes(self::MATCH_EXPIRY_MINUTES);
             $match->save();
             Log::info('Match timer started', [
                 'match' => $match->code,
@@ -86,16 +64,8 @@ class MatchOutcomeService
         if (Carbon::now()->lte(Carbon::parse($match->expires_at))) return;
 
         // Expired: unfinished players forfeit.
-        if (!$match->host_done) {
-            $match->host_forfeit = true;
-            $match->host_done = true;
-            $match->host_result = 'forfeit';
-        }
-        if (!$match->guest_done) {
-            $match->guest_forfeit = true;
-            $match->guest_done = true;
-            $match->guest_result = 'forfeit';
-        }
+        $this->applyExpiryForParticipant($match, 'host');
+        $this->applyExpiryForParticipant($match, 'guest');
         $match->save();
         Log::warning('Match expired after timer', [
             'match' => $match->code,
@@ -110,7 +80,7 @@ class MatchOutcomeService
 
     private function finalizeIfReady(ChallengeGameMatch $match, bool $force = false): void
     {
-        if ($match->status === 'finished') return;
+        if ($match->status === ChallengeGameMatchStatus::Finished) return;
 
         $ready = $force
             || $match->host_forfeit || $match->guest_forfeit
@@ -119,14 +89,14 @@ class MatchOutcomeService
         if (!$ready) return;
 
         $winner = $this->determineWinner($match);
-        $match->status = 'finished';
+        $match->status = ChallengeGameMatchStatus::Finished;
         $match->ended_at = Carbon::now();
         $match->save();
         Log::info('Match finalized', [
             'match' => $match->code,
             'winner' => $winner,
-            'host_result' => $match->host_result,
-            'guest_result' => $match->guest_result,
+            'host_result' => $match->host_result?->value,
+            'guest_result' => $match->guest_result?->value,
             'host_forfeit' => $match->host_forfeit,
             'guest_forfeit' => $match->guest_forfeit,
             'force' => $force,
@@ -141,8 +111,8 @@ class MatchOutcomeService
         if ($match->host_forfeit && !$match->guest_forfeit) return 'guest';
         if ($match->guest_forfeit && !$match->host_forfeit) return 'host';
 
-        $hostWon = $match->host_result === 'won';
-        $guestWon = $match->guest_result === 'won';
+        $hostWon = $match->host_result === ChallengeGameMatchResult::Won;
+        $guestWon = $match->guest_result === ChallengeGameMatchResult::Won;
 
         if ($hostWon && !$guestWon) return 'host';
         if ($guestWon && !$hostWon) return 'guest';
@@ -176,5 +146,70 @@ class MatchOutcomeService
         if ($match->guest_player_id) {
             Cache::forget($this->progress->key($match->code, $match->guest_player_id));
         }
+    }
+
+    private function activeMatch(?string $matchCode): ?ChallengeGameMatch
+    {
+        if (!$matchCode) {
+            return null;
+        }
+
+        $match = ChallengeGameMatch::where('code', $matchCode)->first();
+        if (!$match || $match->status === ChallengeGameMatchStatus::Finished) {
+            return null;
+        }
+
+        return $match;
+    }
+
+    private function applyPlayerResult(
+        ChallengeGameMatch $match,
+        int $playerId,
+        ChallengeGameMatchResult $result,
+        bool $markDone,
+        bool $markForfeit = false,
+    ): void {
+        $fields = $match->host_player_id === $playerId
+            ? $this->participantResultFields('host', $result, $markDone, $markForfeit)
+            : ($match->guest_player_id === $playerId
+                ? $this->participantResultFields('guest', $result, $markDone, $markForfeit)
+                : []);
+
+        if (!$fields) {
+            return;
+        }
+
+        $match->fill($fields);
+        $match->save();
+    }
+
+    /**
+     * @return array<string, bool|ChallengeGameMatchResult>
+     */
+    private function participantResultFields(
+        string $participant,
+        ChallengeGameMatchResult $result,
+        bool $markDone,
+        bool $markForfeit,
+    ): array {
+        return array_filter([
+            "{$participant}_result" => $result,
+            "{$participant}_done" => $markDone ? true : null,
+            "{$participant}_forfeit" => $markForfeit ? true : null,
+        ], static fn ($value) => $value !== null);
+    }
+
+    private function applyExpiryForParticipant(ChallengeGameMatch $match, string $participant): void
+    {
+        $doneField = "{$participant}_done";
+        if ($match->{$doneField}) {
+            return;
+        }
+
+        $forfeitField = "{$participant}_forfeit";
+        $resultField = "{$participant}_result";
+        $match->{$forfeitField} = true;
+        $match->{$doneField} = true;
+        $match->{$resultField} = ChallengeGameMatchResult::Forfeit;
     }
 }

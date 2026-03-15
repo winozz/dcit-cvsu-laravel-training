@@ -1,12 +1,13 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\SvcImplem;
 
 use App\Constants\ChallengeGameConstants;
+use App\DTO\GameStateData;
 use App\Models\ChallengeGameAudit;
 use App\Models\ChallengeGameRun;
-use App\Services\Contracts\GameServiceInterface;
 use App\Services\ChallengeGameItemService;
+use App\Services\Contracts\GameServiceInterface;
 use App\Utilities\GameLetterUtility;
 use Illuminate\Support\Carbon;
 
@@ -16,9 +17,9 @@ class GameService implements GameServiceInterface
         private readonly ChallengeGameItemService $items
     ) {}
 
-    public function handleTurn(bool $resetProgress, bool $restart, ?string $letter, string $game): array
+    public function handleTurn(bool $resetProgress, bool $restart, ?string $letter, string $game): GameStateData
     {
-        if ((bool) session($this->key('depleted', $game), false)) {
+        if ((bool) session($this->key(ChallengeGameConstants::SESSION_DEPLETED, $game), false)) {
             return $this->buildGameData($game);
         }
 
@@ -39,34 +40,26 @@ class GameService implements GameServiceInterface
         }
 
         $gameData = $this->buildGameData($game);
-        return ($gameData['won'] || $gameData['lost'])
-            ? array_merge($gameData, $this->finalizeRound($gameData['won'], $game))
+        return $gameData->isFinished()
+            ? $this->finalizeRound($gameData, $game)
             : $gameData;
     }
 
     /**
-     * Generate the next challenge (category + word) for a game without mutating state.
-     *
-     * @return array{category:string,word:string,resetHistory:bool}
+     * @return array{category:string,word:string,resetHistory:bool}|null
      */
-    public function generateChallenge(string $game): array
+    private function generateChallenge(string $game): ?array
     {
-        $maxRounds = 15; // hard cap for testing: total words per session
+        $history = $this->history($game);
         $excludedWords = array_values(array_unique(array_merge(
-            session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []),
-            session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), [])
+            $history['usedWords'],
+            $history['foundWords'],
         )));
 
         // If we've already played 15 words, mark game as depleted immediately.
-        if (count($excludedWords) >= $maxRounds) {
-            $this->persistAudit($game, 'depleted');
-            session([$this->key('depleted', $game) => true]);
-            return [
-                'category' => null,
-                'word' => null,
-                'resetHistory' => false,
-                'depleted' => true,
-            ];
+        if (count($excludedWords) >= ChallengeGameConstants::MAX_ROUNDS) {
+            $this->markGameDepleted($game);
+            return null;
         }
 
         $availableByCategory = $this->items->availableByCategory($excludedWords);
@@ -74,14 +67,8 @@ class GameService implements GameServiceInterface
         // If every active word has been used, freeze the game instead of recycling words.
         $resetHistory = false;
         if (!$availableByCategory) {
-            $this->persistAudit($game, 'depleted');
-            session([$this->key('depleted', $game) => true]);
-            return [
-                'category' => null,
-                'word' => null,
-                'resetHistory' => false,
-                'depleted' => true,
-            ];
+            $this->markGameDepleted($game);
+            return null;
         }
 
         $category = array_rand($availableByCategory);
@@ -96,21 +83,21 @@ class GameService implements GameServiceInterface
 
     public function resetProgress(string $game, bool $force = false): void
     {
-        if (!$force && (bool) session($this->key('depleted', $game), false)) {
+        if (!$force && (bool) session($this->key(ChallengeGameConstants::SESSION_DEPLETED, $game), false)) {
             return;
         }
         session()->forget($this->keyedSessionKeys($game));
         session()->forget([
             $this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game),
             $this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game),
-            $this->key('depleted', $game),
+            $this->key(ChallengeGameConstants::SESSION_DEPLETED, $game),
         ]);
         $this->startNewGame($game);
     }
 
     public function restartGame(string $game): void
     {
-        if ((bool) session($this->key('depleted', $game), false)) {
+        if ((bool) session($this->key(ChallengeGameConstants::SESSION_DEPLETED, $game), false)) {
             return;
         }
         $this->clearGame($game);
@@ -124,31 +111,28 @@ class GameService implements GameServiceInterface
         }
     }
 
-    public function clearGame(string $game): void
+    private function clearGame(string $game): void
     {
         session()->forget($this->keyedSessionKeys($game));
     }
 
-    public function finalizeRound(bool $won, string $game): array
+    private function finalizeRound(GameStateData $gameData, string $game): GameStateData
     {
         $word = (string) session($this->key(ChallengeGameConstants::SESSION_WORD, $game), '');
-        if ($won && $word) {
+        if ($gameData->won && $word) {
             $this->appendUniqueSessionWord(ChallengeGameConstants::SESSION_FOUND_WORDS, $word, $game);
         }
         $usedWords = session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []);
         $foundWords = session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), []);
+        $correct = session($this->key(ChallengeGameConstants::SESSION_CORRECT, $game), []);
+        $wrong = session($this->key(ChallengeGameConstants::SESSION_WRONG, $game), []);
         $this->clearGame($game);
-        $this->persistRun($game, $word, $foundWords, $usedWords, session($this->key(ChallengeGameConstants::SESSION_CORRECT, $game), []), session($this->key(ChallengeGameConstants::SESSION_WRONG, $game), []), $won);
-        return [
-            'usedWords' => $usedWords,
-            'foundWords' => $foundWords,
-            'usedWordsCount' => count($usedWords),
-            'foundWordsCount' => count($foundWords),
-            'restartAllowed' => false,
-        ];
+        $this->persistRun($game, $word, $foundWords, $usedWords, $correct, $wrong, $gameData->won);
+
+        return $gameData->withRoundSummary($usedWords, $foundWords);
     }
 
-    public function processGuess(?string $letter, string $game): void
+    private function processGuess(?string $letter, string $game): void
     {
         $normalized = GameLetterUtility::normalizeGuess($letter);
         if ($normalized === null) return;
@@ -171,50 +155,48 @@ class GameService implements GameServiceInterface
         ]);
     }
 
-    public function buildGameData(string $game): array
+    public function buildGameData(string $game): GameStateData
     {
-        $isDepleted = (bool) session($this->key('depleted', $game), false);
+        $isDepleted = (bool) session($this->key(ChallengeGameConstants::SESSION_DEPLETED, $game), false);
         $difficulty = (int) session($this->key(ChallengeGameConstants::SESSION_DIFFICULTY, $game), 1);
         $difficultyLabel = $this->difficultyLabel($difficulty);
-        $startedAt = session($this->key('timer_started', $game)) ?: Carbon::now();
-        session([$this->key('timer_started', $game) => $startedAt]);
-        $expiresAt = Carbon::parse($startedAt)->addMinutes(2);
+        $startedAt = session($this->key(ChallengeGameConstants::SESSION_TIMER_STARTED, $game)) ?: Carbon::now();
+        session([$this->key(ChallengeGameConstants::SESSION_TIMER_STARTED, $game) => $startedAt]);
+        $expiresAt = Carbon::parse($startedAt)->addMinutes(ChallengeGameConstants::ROUND_TIMER_MINUTES);
         $remainingSeconds = max(0, Carbon::now()->diffInSeconds($expiresAt, false));
         $timedOut = Carbon::now()->gte($expiresAt);
         if ($isDepleted) {
-            $usedWords = session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []);
-            $foundWords = session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), []);
-            return [
-                'word' => '',
-                'category' => '',
-                'clue' => 'All challenges completed.',
-                'display' => '----',
-                'won' => false,
-                'lost' => false,
-                'tries' => 0,
-                'correct' => [],
-                'wrong' => [],
-                'maxTries' => 0,
-                'usedWords' => $usedWords,
-                'foundWords' => $foundWords,
-                'usedWordsCount' => count($usedWords),
-                'foundWordsCount' => count($foundWords),
-                'restartAllowed' => false,
-                'gameSlug' => $game,
-                'readonly' => true,
-                'difficulty' => $difficulty,
-                'difficultyLabel' => $difficultyLabel,
-                'timedOut' => $timedOut,
-                'timerRemaining' => 0,
-            ];
+            $history = $this->history($game);
+            return new GameStateData(
+                word: '',
+                category: '',
+                clue: 'All challenges completed.',
+                display: '----',
+                won: false,
+                lost: false,
+                tries: 0,
+                correct: [],
+                wrong: [],
+                maxTries: 0,
+                usedWords: $history['usedWords'],
+                foundWords: $history['foundWords'],
+                usedWordsCount: count($history['usedWords']),
+                foundWordsCount: count($history['foundWords']),
+                restartAllowed: false,
+                gameSlug: $game,
+                readonly: true,
+                difficulty: $difficulty,
+                difficultyLabel: $difficultyLabel,
+                timedOut: $timedOut,
+                timerRemaining: 0,
+            );
         }
 
         $word = (string) session($this->key(ChallengeGameConstants::SESSION_WORD, $game));
         $category = (string) session($this->key(ChallengeGameConstants::SESSION_CATEGORY, $game));
         $correct = session($this->key(ChallengeGameConstants::SESSION_CORRECT, $game), []);
         $wrong = session($this->key(ChallengeGameConstants::SESSION_WRONG, $game), []);
-        $usedWords = session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []);
-        $foundWords = session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), []);
+        $history = $this->history($game);
         $tries = count($wrong);
         $restartAllowed = !$this->hasGuesses($game);
         $clue = $this->items->clue($category, $word);
@@ -227,36 +209,36 @@ class GameService implements GameServiceInterface
             $tries = $maxTries;
         }
 
-        return [
-            'word' => $word,
-            'category' => $category,
-            'clue' => $clue,
-            'display' => $display,
-            'won' => !$timedOut && !str_contains($display, '_'),
-            'lost' => $timedOut || $tries >= $maxTries,
-            'tries' => $tries,
-            'correct' => $correct,
-            'wrong' => $wrong,
-            'maxTries' => $maxTries,
-            'usedWords' => $usedWords,
-            'foundWords' => $foundWords,
-            'usedWordsCount' => count($usedWords),
-            'foundWordsCount' => count($foundWords),
-            'restartAllowed' => $restartAllowed,
-            'gameSlug' => $game,
-            'readonly' => false,
-            'difficulty' => $difficulty,
-            'difficultyLabel' => $difficultyLabel,
-            'timedOut' => $timedOut,
-            'timerRemaining' => $timedOut ? 0 : $remainingSeconds,
-        ];
+        return new GameStateData(
+            word: $word,
+            category: $category,
+            clue: $clue,
+            display: $display,
+            won: !$timedOut && !str_contains($display, '_'),
+            lost: $timedOut || $tries >= $maxTries,
+            tries: $tries,
+            correct: $correct,
+            wrong: $wrong,
+            maxTries: $maxTries,
+            usedWords: $history['usedWords'],
+            foundWords: $history['foundWords'],
+            usedWordsCount: count($history['usedWords']),
+            foundWordsCount: count($history['foundWords']),
+            restartAllowed: $restartAllowed,
+            gameSlug: $game,
+            readonly: false,
+            difficulty: $difficulty,
+            difficultyLabel: $difficultyLabel,
+            timedOut: $timedOut,
+            timerRemaining: $timedOut ? 0 : $remainingSeconds,
+        );
     }
 
     private function startNewGame(string $game): void
     {
         $challenge = $this->generateChallenge($game);
 
-        if (!empty($challenge['depleted'])) {
+        if ($challenge === null) {
             return;
         }
 
@@ -277,9 +259,9 @@ class GameService implements GameServiceInterface
             $this->key(ChallengeGameConstants::SESSION_CATEGORY, $game) => $category,
             $this->key(ChallengeGameConstants::SESSION_CORRECT, $game) => [],
             $this->key(ChallengeGameConstants::SESSION_WRONG, $game) => [],
-            $this->key('max_tries', $game) => $maxTries,
+            $this->key(ChallengeGameConstants::SESSION_MAX_TRIES, $game) => $maxTries,
             $this->key(ChallengeGameConstants::SESSION_DIFFICULTY, $game) => $difficulty,
-            $this->key('timer_started', $game) => Carbon::now(),
+            $this->key(ChallengeGameConstants::SESSION_TIMER_STARTED, $game) => Carbon::now(),
         ]);
 
         $this->appendUniqueSessionWord(ChallengeGameConstants::SESSION_USED_WORDS, $word, $game);
@@ -294,11 +276,17 @@ class GameService implements GameServiceInterface
         }
     }
 
+    private function markGameDepleted(string $game): void
+    {
+        $this->persistAudit($game, ChallengeGameConstants::AUDIT_STATUS_DEPLETED);
+        session([$this->key(ChallengeGameConstants::SESSION_DEPLETED, $game) => true]);
+    }
+
     private function persistRun(string $game, string $word, array $foundWords, array $usedWords, array $correct, array $wrong, bool $won): void
     {
         if ($word === '') return;
 
-        $maxTries = (int) session($this->key('max_tries', $game), ChallengeGameConstants::MAX_TRIES);
+        $maxTries = (int) session($this->key(ChallengeGameConstants::SESSION_MAX_TRIES, $game), ChallengeGameConstants::MAX_TRIES);
         $category = (string) session($this->key(ChallengeGameConstants::SESSION_CATEGORY, $game), '');
 
         ChallengeGameRun::create([
@@ -318,14 +306,13 @@ class GameService implements GameServiceInterface
 
     private function persistAudit(string $game, string $status): void
     {
-        $usedWords = session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []);
-        $foundWords = session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), []);
+        $history = $this->history($game);
 
         ChallengeGameAudit::create([
             'game_slug' => $game,
             'status' => $status,
-            'used_words' => $usedWords,
-            'found_words' => $foundWords,
+            'used_words' => $history['usedWords'],
+            'found_words' => $history['foundWords'],
         ]);
     }
 
@@ -345,11 +332,18 @@ class GameService implements GameServiceInterface
 
     private function difficultyLabel(int $difficulty): string
     {
-        return match ($difficulty) {
-            2 => 'Medium',
-            3 => 'Hard',
-            default => 'Easy',
-        };
+        return ChallengeGameConstants::DIFFICULTY_LABELS[$difficulty] ?? ChallengeGameConstants::DIFFICULTY_LABELS[1];
+    }
+
+    /**
+     * @return array{usedWords: array<int, string>, foundWords: array<int, string>}
+     */
+    private function history(string $game): array
+    {
+        return [
+            'usedWords' => session($this->key(ChallengeGameConstants::SESSION_USED_WORDS, $game), []),
+            'foundWords' => session($this->key(ChallengeGameConstants::SESSION_FOUND_WORDS, $game), []),
+        ];
     }
 
     private function hasGuesses(string $game): bool

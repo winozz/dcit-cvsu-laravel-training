@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\ChallengeGameMatchResult;
+use App\Enums\ChallengeGameMatchStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -23,6 +25,21 @@ class ChallengeGameMatch extends Model
         'expires_at',
         'ended_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'status' => ChallengeGameMatchStatus::class,
+            'host_done' => 'boolean',
+            'guest_done' => 'boolean',
+            'host_forfeit' => 'boolean',
+            'guest_forfeit' => 'boolean',
+            'host_result' => ChallengeGameMatchResult::class,
+            'guest_result' => ChallengeGameMatchResult::class,
+            'expires_at' => 'datetime',
+            'ended_at' => 'datetime',
+        ];
+    }
 
     public function getRouteKeyName(): string
     {

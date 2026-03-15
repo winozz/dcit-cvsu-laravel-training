@@ -4,8 +4,8 @@ namespace App\Providers;
 
 use App\Services\Contracts\GameCatalogInterface;
 use App\Services\Contracts\GameServiceInterface;
-use App\Services\GameCatalogService;
-use App\Services\GameService;
+use App\Services\SvcImplem\GameCatalogService;
+use App\Services\SvcImplem\GameService;
 use Illuminate\Support\ServiceProvider;
 
 class ServiceBindingProvider extends ServiceProvider

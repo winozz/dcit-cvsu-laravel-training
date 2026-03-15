@@ -2,17 +2,13 @@
 
 namespace App\Services\Contracts;
 
+use App\DTO\GameStateData;
+
 interface GameServiceInterface
 {
-    public function handleTurn(bool $resetProgress, bool $restart, ?string $letter, string $game): array;
+    public function handleTurn(bool $resetProgress, bool $restart, ?string $letter, string $game): GameStateData;
     public function ensureGameStarted(string $game): void;
-    public function buildGameData(string $game): array;
+    public function buildGameData(string $game): GameStateData;
     public function resetProgress(string $game, bool $force = false): void;
     public function restartGame(string $game): void;
-    /**
-     * Provide a generated challenge (category + word) for a given game slug without mutating state.
-     *
-     * @return array{category:string,word:string,resetHistory:bool}
-     */
-    public function generateChallenge(string $game): array;
 }

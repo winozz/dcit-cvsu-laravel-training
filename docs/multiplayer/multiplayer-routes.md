@@ -1,3 +1,18 @@
+# High-Level Flowchart
+
+```mermaid
+flowchart LR
+	Player -->|Lobby| LobbyController
+	Player -->|Match| MatchProgressController
+	Player -->|Game| GameController
+	LobbyController --> DB
+	MatchProgressController --> DB
+	GameController --> DB
+	Player -.-> Middleware
+	Middleware -.-> LobbyController
+	Middleware -.-> MatchProgressController
+	Middleware -.-> GameController
+```
 # High-Level and Low-Level Implementation
 
 ## High-Level Overview

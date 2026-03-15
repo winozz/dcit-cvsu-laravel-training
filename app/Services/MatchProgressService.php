@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\DTO\MatchProgressData;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Carbon;
 
@@ -12,14 +13,19 @@ class MatchProgressService
         return "matches.$matchCode.players.$playerId.progress";
     }
 
-    public function store(string $matchCode, int $playerId, array $payload, int $minutes = 60): void
+    public function store(string $matchCode, int $playerId, MatchProgressData $payload, int $minutes = 60): void
     {
-        Cache::put($this->key($matchCode, $playerId), $payload, Carbon::now()->addMinutes($minutes));
+        Cache::put($this->key($matchCode, $playerId), $payload->toArray(), Carbon::now()->addMinutes($minutes));
     }
 
-    public function get(string $matchCode, int $playerId): ?array
+    public function get(string $matchCode, int $playerId): ?MatchProgressData
     {
-        return Cache::get($this->key($matchCode, $playerId));
+        $payload = Cache::get($this->key($matchCode, $playerId));
+        if (!is_array($payload)) {
+            return null;
+        }
+
+        return MatchProgressData::fromArray($payload);
     }
 
     public function forget(string $matchCode, ?int $playerId = null): void

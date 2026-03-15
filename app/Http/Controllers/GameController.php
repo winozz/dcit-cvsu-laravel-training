@@ -2,16 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\DTO\GameStateData;
+use App\DTO\MatchProgressData;
+use App\Events\OpponentProgressUpdated;
 use App\Http\Requests\StoreGameRequest;
 use App\Models\ChallengeGameMatch;
+use App\Models\Player;
 use App\Services\MatchOutcomeService;
 use App\Services\MatchProgressService;
 use App\Services\Contracts\GameCatalogInterface;
 use App\Services\Contracts\GameServiceInterface;
+use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Broadcasting\BroadcastException;
-use App\Events\OpponentProgressUpdated;
 
 class GameController extends Controller
 {
@@ -60,10 +63,9 @@ class GameController extends Controller
     {
         // Guests reuse the normal game flow but without match/multiplayer state
         $this->gameService->ensureGameStarted($game);
-        $gameData = $this->gameService->buildGameData($game);
-        $gameData['readonly'] = false;
+        $gameData = $this->gameService->buildGameData($game)->withReadonly(false);
 
-        return view('game.show', array_merge($gameData, [
+        return view('game.show', array_merge($gameData->toArray(), [
             'matchCode' => null,
             'opponentProgress' => null,
             'playerName' => 'Guest',
@@ -96,6 +98,7 @@ class GameController extends Controller
     public function show(Request $request, string $game = 'word-quest')
     {
         $matchCode = $request->query('match');
+        $match = $this->authorizedMatch($matchCode);
 
         // If switching to a different match code, clear prior progress so used/found words don't leak.
         $prevMatch = session('current_match_code');
@@ -111,14 +114,14 @@ class GameController extends Controller
         $this->gameService->ensureGameStarted($game);
         $gameData = $this->gameService->buildGameData($game);
 
-        $opponentProgress = $this->opponentProgress($matchCode);
+        $opponentProgress = $this->opponentProgress($match);
         $this->storeLiveSnapshot($gameData, $matchCode);
 
-        return view('game.show', array_merge($gameData, [
+        return view('game.show', array_merge($gameData->toArray(), [
             'matchCode' => $matchCode,
-            'opponentProgress' => $opponentProgress,
+            'opponentProgress' => $opponentProgress?->toArray(),
             'playerName' => $this->currentPlayer()?->username,
-            'opponentName' => $this->opponentName($matchCode),
+            'opponentName' => $this->opponentName($match),
             'guestMode' => false,
         ]));
     }
@@ -131,8 +134,9 @@ class GameController extends Controller
         $this->storeLiveSnapshot($gameData, $request->query('match'));
         if ($request->expectsJson()) {
             // Avoid leaking the answer on fresh rounds.
-            unset($gameData['word']);
-            return response()->json($gameData);
+            $payload = $gameData->toArray();
+            unset($payload['word']);
+            return response()->json($payload);
         }
 
         return redirect()->route('games.show', ['game' => $game]);
@@ -150,51 +154,40 @@ class GameController extends Controller
         );
 
         $this->storeLiveSnapshot($gameData, $request->query('match'));
-        return response()->json($gameData);
+        return response()->json($gameData->toArray());
     }
 
-    private function storeLiveSnapshot(array $gameData, ?string $matchCode): void
+    private function storeLiveSnapshot(GameStateData $gameData, ?string $matchCode): void
     {
         $playerId = session('player_id');
         if (!$matchCode || !$playerId) return;
 
-        $payload = [
-            'version' => (int) (microtime(true) * 1000), // ms precision to avoid same-second collisions
-            'display' => $gameData['display'] ?? '',
-            'tries' => $gameData['tries'] ?? 0,
-            'maxTries' => $gameData['maxTries'] ?? 0,
-            'usedWordsCount' => $gameData['usedWordsCount'] ?? 0,
-            'foundWordsCount' => $gameData['foundWordsCount'] ?? 0,
-            'won' => $gameData['won'] ?? false,
-            'lost' => $gameData['lost'] ?? false,
-            'readonly' => $gameData['readonly'] ?? false,
-        ];
+        $payload = $gameData->toMatchProgressData(
+            version: (int) (microtime(true) * 1000),
+        );
 
         $this->matchProgress->store($matchCode, $playerId, $payload);
         try {
-            event(new OpponentProgressUpdated($matchCode, $payload));
+            event(new OpponentProgressUpdated($matchCode, $payload->toArray()));
         } catch (BroadcastException $e) {
             Log::warning('Opponent progress broadcast failed', ['error' => $e->getMessage()]);
         }
 
-        if (($gameData['won'] ?? false) || ($gameData['lost'] ?? false)) {
+        if ($gameData->isFinished()) {
             $this->matchOutcome->markProgress(
                 $matchCode,
                 $playerId,
-                $gameData['won'] ?? false,
-                $gameData['lost'] ?? false,
-                $gameData['timedOut'] ?? false
+                $gameData->won,
+                $gameData->lost,
+                $gameData->timedOut
             );
         }
     }
 
-    private function opponentProgress(?string $matchCode): ?array
+    private function opponentProgress(?ChallengeGameMatch $match): ?MatchProgressData
     {
         $playerId = session('player_id');
-        if (!$matchCode || !$playerId) return null;
-
-        $match = ChallengeGameMatch::where('code', $matchCode)->first();
-        if (!$match) return null;
+        if (!$match || !$playerId) return null;
 
         $opponentId = $match->host_player_id === $playerId
             ? $match->guest_player_id
@@ -202,25 +195,41 @@ class GameController extends Controller
 
         if (!$opponentId) return null;
 
-        return $this->matchProgress->get($matchCode, $opponentId);
+        return $this->matchProgress->get($match->code, $opponentId);
     }
 
-    private function currentPlayer()
+    private function currentPlayer(): ?Player
     {
         $playerId = session('player_id');
-        return $playerId ? \App\Models\Player::find($playerId) : null;
+        return $playerId ? Player::find($playerId) : null;
     }
 
-    private function opponentName(?string $matchCode): ?string
+    private function opponentName(?ChallengeGameMatch $match): ?string
     {
         $player = $this->currentPlayer();
-        if (!$matchCode || !$player) return null;
-
-        $match = ChallengeGameMatch::where('code', $matchCode)->with(['host', 'guest'])->first();
-        if (!$match) return null;
+        if (!$match || !$player) return null;
 
         return $match->host_player_id === $player->id
             ? $match->guest?->username
             : $match->host?->username;
+    }
+
+    private function authorizedMatch(?string $matchCode): ?ChallengeGameMatch
+    {
+        if (!$matchCode) {
+            return null;
+        }
+
+        $match = ChallengeGameMatch::where('code', $matchCode)
+            ->with(['host', 'guest'])
+            ->first();
+
+        abort_if(!$match, 404);
+
+        $player = $this->currentPlayer();
+        abort_if(!$player, 403);
+        $this->authorizeForUser($player, 'view', $match);
+
+        return $match;
     }
 }

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Services;
+namespace App\Services\SvcImplem;
 
 use App\Services\Contracts\GameCatalogInterface;
 use Illuminate\Support\Str;
