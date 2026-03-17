@@ -30,8 +30,10 @@ Route::post('logout', [PlayerAuthController::class, 'logout'])->name('players.lo
 Route::get('guest/games', [GameController::class, 'guestIndex'])->name('guest.games');
 // Place the static create route before the {game} wildcard so "create" isn't captured as a slug
 Route::get('guest/games/create', [GameController::class, 'guestCreate'])->name('guest.games.create');
-Route::get('guest/games/{game}', [GameController::class, 'guestShow'])->name('guest.games.show');
 Route::post('guest/games', [GameController::class, 'guestStore'])->name('guest.games.store');
+Route::match(['put', 'patch'], 'guest/games/{game}', [GameController::class, 'guestUpdate'])->name('guest.games.update');
+Route::post('guest/games/{game}/next', [GameController::class, 'guestNext'])->name('guest.games.next');
+Route::get('guest/games/{game}', [GameController::class, 'guestShow'])->name('guest.games.show');
 
 // Lobby + matches
 Route::middleware('player.session')->group(function () {

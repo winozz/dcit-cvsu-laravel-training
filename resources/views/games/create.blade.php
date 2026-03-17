@@ -24,7 +24,7 @@
             </ul>
         </div>
     @endif
-    <form class="form-card" method="POST" action="{{ route('games.store') }}">
+    <form class="form-card" method="POST" action="{{ empty($guestMode) ? route('games.store') : route('guest.games.store') }}">
         @csrf
         <label for="name">Name</label>
         <input type="text" id="name" name="name" placeholder="Game name" required value="{{ old('name') }}">
@@ -47,5 +47,5 @@
 
         <button type="submit" class="primary-btn">Save</button>
     </form>
-    <p style="margin-top:12px;"><a class="link" href="{{ route('games.index') }}">Back to list</a></p>
+    <p style="margin-top:12px;"><a class="link" href="{{ empty($guestMode) ? route('games.index') : route('guest.games') }}">Back to list</a></p>
 </x-app>

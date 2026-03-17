@@ -149,7 +149,7 @@
         <div class="surface-ghost flex flex-wrap gap-2 items-center">
             @if(!$readonly)
                 <button id="restart-btn" class="btn warn h-9 px-3 text-[10px]" @if(!$restartAllowed) disabled aria-disabled="true" title="Restart disabled after guesses begin" @endif>Restart</button>
-                <form id="next-form" class="{{ $nextLabel ? '' : 'hidden' }} inline-block" method="POST" action="{{ route('games.next', ['game' => $gameSlug]) }}">
+                <form id="next-form" class="{{ $nextLabel ? '' : 'hidden' }} inline-block" method="POST" action="{{ $guestMode ? route('guest.games.next', ['game' => $gameSlug]) : route('games.next', ['game' => $gameSlug]) }}">
                     @csrf
                     <button id="next-btn" class="btn green h-9 px-3 text-[10px]" type="submit">{{ $nextLabel ?? 'Next Word' }}</button>
                 </form>
@@ -208,8 +208,8 @@
     <script>
         const csrfToken = '{{ csrf_token() }}';
         const matchCode = '{{ $matchCode }}';
-        const updateUrl = '{{ route('games.update', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
-        const nextUrl = '{{ route('games.next', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
+        const updateUrl = '{{ $guestMode ? route('guest.games.update', ['game' => $gameSlug]) : route('games.update', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
+        const nextUrl = '{{ $guestMode ? route('guest.games.next', ['game' => $gameSlug]) : route('games.next', ['game' => $gameSlug]) }}' + (matchCode ? `?match=${matchCode}` : '');
         // Disable SSE/websocket fallback; rely on JSON polling
         const streamUrl = null;
         const opponentUrl = matchCode ? `{{ url('matches') }}/${matchCode}/opponent` : null;

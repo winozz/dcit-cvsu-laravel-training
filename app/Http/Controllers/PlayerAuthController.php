@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Events\PlayerVerificationRequested;
 use App\Models\Player;
+use App\Services\PlayerEmailVerificationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -12,6 +13,10 @@ use Illuminate\Support\Facades\Hash;
 
 class PlayerAuthController extends Controller
 {
+    public function __construct(private readonly PlayerEmailVerificationService $verification)
+    {
+    }
+
     public function showLogin(): View
     {
         return view('players.login');
@@ -49,10 +54,13 @@ class PlayerAuthController extends Controller
         if ($player->requiresEmailVerification()) {
             $request->session()->forget(['player_id', 'player_token']);
             $request->session()->put('pending_player_id', $player->id);
-            event(new PlayerVerificationRequested($player));
+
+            if (!$this->verification->hasActiveCode($player)) {
+                event(new PlayerVerificationRequested($player));
+            }
 
             return redirect()->route('players.verification.notice')
-                ->with('status', 'Verify your email first. We sent a fresh OTP to your inbox.');
+                ->with('status', 'Verify your email first. Check your inbox for the OTP.');
         }
 
         $token = (string) Str::uuid();
