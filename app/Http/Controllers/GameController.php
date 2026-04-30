@@ -79,6 +79,27 @@ class GameController extends Controller
         return view('games.create', ['guestMode' => true]);
     }
 
+    public function guestUpdate(Request $request, string $game)
+    {
+        return response()->json(
+            $this->runTurn($request, $game)->toArray()
+        );
+    }
+
+    public function guestNext(Request $request, string $game)
+    {
+        $gameData = $this->restartRound($game);
+
+        if ($request->expectsJson()) {
+            $payload = $gameData->toArray();
+            unset($payload['word']);
+
+            return response()->json($payload);
+        }
+
+        return redirect()->route('guest.games.show', ['game' => $game]);
+    }
+
     public function guestStore(StoreGameRequest $request)
     {
         $validated = $request->validated();
@@ -128,8 +149,7 @@ class GameController extends Controller
 
     public function next(Request $request, string $game)
     {
-        $this->gameService->restartGame($game);
-        $gameData = $this->gameService->buildGameData($game);
+        $gameData = $this->restartRound($game);
 
         $this->storeLiveSnapshot($gameData, $request->query('match'));
         if ($request->expectsJson()) {
@@ -144,17 +164,27 @@ class GameController extends Controller
 
     public function update(Request $request, string $game)
     {
-        $restart = $request->boolean('restart');
-        $letter = $request->filled('letter') ? $request->input('letter') : null;
-        $gameData = $this->gameService->handleTurn(
-            $request->boolean('reset_progress'),
-            $restart,
-            $letter,
-            $game
-        );
+        $gameData = $this->runTurn($request, $game);
 
         $this->storeLiveSnapshot($gameData, $request->query('match'));
         return response()->json($gameData->toArray());
+    }
+
+    private function restartRound(string $game): GameStateData
+    {
+        $this->gameService->restartGame($game);
+
+        return $this->gameService->buildGameData($game);
+    }
+
+    private function runTurn(Request $request, string $game): GameStateData
+    {
+        return $this->gameService->handleTurn(
+            $request->boolean('reset_progress'),
+            $request->boolean('restart'),
+            $request->filled('letter') ? $request->input('letter') : null,
+            $game
+        );
     }
 
     private function storeLiveSnapshot(GameStateData $gameData, ?string $matchCode): void

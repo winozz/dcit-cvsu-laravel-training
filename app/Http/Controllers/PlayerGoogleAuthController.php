@@ -22,6 +22,33 @@ class PlayerGoogleAuthController extends Controller
         try {
             /** @var SocialiteUser $googleUser */
             $googleUser = Socialite::driver('google')->user();
+
+            $googleId = trim((string) $googleUser->getId());
+            $email = Str::lower(trim((string) $googleUser->getEmail()));
+
+            if ($googleId === '' || $email === '') {
+                return redirect()
+                    ->route('players.login.form')
+                    ->withErrors(['auth' => 'Google did not return a usable account email.']);
+            }
+
+            $player = $this->resolvePlayer($googleUser, $googleId, $email);
+            if (!$player) {
+                return redirect()
+                    ->route('players.login.form')
+                    ->withErrors(['auth' => 'Google account could not be linked safely.']);
+            }
+
+            $token = (string) Str::uuid();
+            $player->forceFill([
+                'session_token' => $token,
+            ])->save();
+
+            $request->session()->forget('pending_player_id');
+            $request->session()->put('player_id', $player->id);
+            $request->session()->put('player_token', $token);
+
+            return redirect()->route('lobby.index')->with('status', 'Signed in with Google.');
         } catch (Throwable $e) {
             report($e);
 
@@ -29,33 +56,6 @@ class PlayerGoogleAuthController extends Controller
                 ->route('players.login.form')
                 ->withErrors(['auth' => 'Google sign-in failed. Please try again.']);
         }
-
-        $googleId = trim((string) $googleUser->getId());
-        $email = Str::lower(trim((string) $googleUser->getEmail()));
-
-        if ($googleId === '' || $email === '') {
-            return redirect()
-                ->route('players.login.form')
-                ->withErrors(['auth' => 'Google did not return a usable account email.']);
-        }
-
-        $player = $this->resolvePlayer($googleUser, $googleId, $email);
-        if (!$player) {
-            return redirect()
-                ->route('players.login.form')
-                ->withErrors(['auth' => 'Google account could not be linked safely.']);
-        }
-
-        $token = (string) Str::uuid();
-        $player->forceFill([
-            'session_token' => $token,
-        ])->save();
-
-        $request->session()->forget('pending_player_id');
-        $request->session()->put('player_id', $player->id);
-        $request->session()->put('player_token', $token);
-
-        return redirect()->route('lobby.index')->with('status', 'Signed in with Google.');
     }
 
     private function resolvePlayer(SocialiteUser $googleUser, string $googleId, string $email): ?Player
