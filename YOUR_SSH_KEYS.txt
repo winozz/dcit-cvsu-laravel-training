@@ -1,0 +1,122 @@
+================================================================================
+  YOUR SSH KEYS - KEEP THESE SAFE!
+================================================================================
+
+Generated: 2026-04-30
+Keys: Ed25519 (Secure)
+Purpose: GitHub Actions Deployment
+
+================================================================================
+  PRIVATE KEY (for GitHub Secret DEPLOY_SSH_KEY)
+================================================================================
+
+Copy this entire block (from -----BEGIN to -----END) and paste into GitHub:
+
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACCmr3vTcY73RvCpovY57JbQ4clhV7DnTtyRZQ6BsFEETAAAAJBVXpBGVV6Q
+RgAAAAtzc2gtZWQyNTUxOQAAACCmr3vTcY73RvCpovY57JbQ4clhV7DnTtyRZQ6BsFEETA
+AAAEA/7RrSDcYrGFHgyGpvOlvqn2+x3c8+n3ALM0wr/zBEM6ave9NxjvdG8Kmi9jnsltDh
+yWFXsOdO3JFlDoGwUQRMAAAADWdpdGh1Yi1kZXBsb3k=
+-----END OPENSSH PRIVATE KEY-----
+
+⚠️  KEEP THIS SECRET!
+    - Do NOT share this key
+    - Do NOT commit to git
+    - Do NOT post on forums
+    - Store in GitHub Secrets only
+
+================================================================================
+  PUBLIC KEY (for Server ~/.ssh/authorized_keys)
+================================================================================
+
+Copy this line and paste into your server's ~/.ssh/authorized_keys:
+
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKave9NxjvdG8Kmi9jnsltDhyWFXsOdO3JFlDoGwUQRM github-deploy
+
+This can be public - it's the "lock" that matches the private key "key"
+
+================================================================================
+  QUICK SETUP (Copy-Paste These Commands)
+================================================================================
+
+STEP 1: Add to GitHub Secret
+────────────────────────────────────────────────────────────────────────
+Go to: https://github.com/winozz/dcit-cvsu-laravel-training/settings/secrets/actions
+
+Click: New repository secret
+Name: DEPLOY_SSH_KEY
+Value: [Paste the PRIVATE KEY from above]
+
+STEP 2: Add to Production Server
+────────────────────────────────────────────────────────────────────────
+SSH to your server:
+  ssh your-user@your-server-ip
+
+Run these commands:
+  mkdir -p ~/.ssh
+  chmod 700 ~/.ssh
+  cat >> ~/.ssh/authorized_keys << 'EOF'
+  ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKave9NxjvdG8Kmi9jnsltDhyWFXsOdO3JFlDoGwUQRM github-deploy
+  EOF
+  chmod 600 ~/.ssh/authorized_keys
+
+STEP 3: Test SSH Connection
+────────────────────────────────────────────────────────────────────────
+From your LOCAL machine:
+  ssh deploy@your-server-ip
+
+Expected: You are logged in WITHOUT password prompt
+
+STEP 4: Run Full SSH Test
+────────────────────────────────────────────────────────────────────────
+From your LOCAL machine:
+  bash scripts/test-ssh.sh
+
+Expected: All tests pass ✅
+
+================================================================================
+  YOUR VALUES FOR GITHUB SECRETS
+================================================================================
+
+DEPLOY_HOST = ____________________________________
+  (Your production server IP or hostname)
+  Example: 192.168.1.100 or app.example.com
+
+DEPLOY_USER = ____________________________________
+  (SSH username, usually 'deploy' or 'ubuntu')
+
+DEPLOY_SSH_KEY =
+  -----BEGIN OPENSSH PRIVATE KEY-----
+  [Above private key]
+  -----END OPENSSH PRIVATE KEY-----
+
+DEPLOY_PATH = ____________________________________
+  (App directory on server)
+  Example: /home/deploy/dcit-cvsu-laravel-training
+
+================================================================================
+  VERIFY YOU HAVE THESE READY
+================================================================================
+
+Checklist:
+  [ ] PRIVATE key copied (above)
+  [ ] PUBLIC key copied (above)
+  [ ] DEPLOY_HOST identified (server IP)
+  [ ] DEPLOY_USER identified (SSH username)
+  [ ] DEPLOY_PATH identified (app directory)
+
+When all checked ✅ → You're ready for the next phase!
+
+================================================================================
+  FILES SAVED
+================================================================================
+
+Private key file: ~/.ssh/github_deploy
+Public key file:  ~/.ssh/github_deploy.pub
+
+Display them anytime:
+  cat ~/.ssh/github_deploy        (private key)
+  cat ~/.ssh/github_deploy.pub    (public key)
+
+================================================================================
