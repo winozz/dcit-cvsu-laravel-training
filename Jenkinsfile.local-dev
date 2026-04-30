@@ -66,11 +66,18 @@ pipeline {
             steps {
                 script {
                     echo '📦 Logging in to GitHub Container Registry...'
-                    sh '''
-                        echo "${GITHUB_TOKEN}" | docker login ${REGISTRY} \
-                            -u ${GITHUB_ACTOR} \
-                            --password-stdin
-                    '''
+                    if (isUnix()) {
+                        sh '''
+                            echo "${GITHUB_TOKEN}" | docker login ${REGISTRY} \
+                                -u ${GITHUB_ACTOR} \
+                                --password-stdin
+                        '''
+                    } else {
+                        bat '''
+                            @echo off
+                            echo %GITHUB_TOKEN% | docker login %REGISTRY% -u %GITHUB_ACTOR% --password-stdin
+                        '''
+                    }
                     echo '✅ GHCR login successful'
                 }
             }
@@ -80,18 +87,28 @@ pipeline {
             steps {
                 script {
                     echo "📥 Pulling image ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG}..."
-                    sh '''
-                        docker pull --platform linux/amd64 \
-                            ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG} || \
-                            echo "⚠️  Pull failed, using cached image if available"
-                    '''
-                    sh '''
-                        echo "Image info:"
-                        docker inspect --format "  ID: {{.Id}}" \
-                            ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG} || true
-                        docker inspect --format "  Created: {{.Created}}" \
-                            ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG} || true
-                    '''
+                    if (isUnix()) {
+                        sh '''
+                            docker pull --platform linux/amd64 \
+                                ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG} || \
+                                echo "⚠️  Pull failed, using cached image if available"
+                        '''
+                        sh '''
+                            echo "Image info:"
+                            docker inspect --format "  ID: {{.Id}}" \
+                                ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG} || true
+                            docker inspect --format "  Created: {{.Created}}" \
+                                ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG} || true
+                        '''
+                    } else {
+                        bat '''
+                            @echo off
+                            docker pull --platform linux/amd64 %REGISTRY%/%IMAGE_NAME%:%IMAGE_TAG% || echo "⚠️  Pull failed, using cached image if available"
+                            echo Image info:
+                            docker inspect --format "  ID: {{.Id}}" %REGISTRY%/%IMAGE_NAME%:%IMAGE_TAG% || echo ""
+                            docker inspect --format "  Created: {{.Created}}" %REGISTRY%/%IMAGE_NAME%:%IMAGE_TAG% || echo ""
+                        '''
+                    }
                     echo '✅ Image pulled/cached'
                 }
             }
@@ -101,10 +118,18 @@ pipeline {
             steps {
                 script {
                     echo "🧹 Cleaning up old container ${params.CONTAINER_NAME}..."
-                    sh '''
-                        docker stop ${CONTAINER_NAME} 2>/dev/null || true
-                        docker rm ${CONTAINER_NAME} 2>/dev/null || true
-                    '''
+                    if (isUnix()) {
+                        sh '''
+                            docker stop ${CONTAINER_NAME} 2>/dev/null || true
+                            docker rm ${CONTAINER_NAME} 2>/dev/null || true
+                        '''
+                    } else {
+                        bat '''
+                            @echo off
+                            docker stop %CONTAINER_NAME% 2>nul || exit /b 0
+                            docker rm %CONTAINER_NAME% 2>nul || exit /b 0
+                        '''
+                    }
                     echo '✅ Old container removed'
                 }
             }
@@ -114,31 +139,53 @@ pipeline {
             steps {
                 script {
                     echo "🚀 Starting container on port ${params.LOCAL_PORT}..."
-                    sh '''
-                        docker run -d \
-                            --name ${CONTAINER_NAME} \
-                            -p ${LOCAL_PORT}:8080 \
-                            -e APP_URL=http://localhost:${LOCAL_PORT} \
-                            -e HEALTHCHECK_PATH=/up \
-                            ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG}
-                    '''
+                    if (isUnix()) {
+                        sh '''
+                            docker run -d \
+                                --name ${CONTAINER_NAME} \
+                                -p ${LOCAL_PORT}:8080 \
+                                -e APP_URL=http://localhost:${LOCAL_PORT} \
+                                -e HEALTHCHECK_PATH=/up \
+                                ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG}
+                        '''
 
-                    echo '⏳ Waiting for application to start...'
-                    sleep(time: 10, unit: 'SECONDS')
+                        echo '⏳ Waiting for application to start...'
+                        sleep(time: 10, unit: 'SECONDS')
 
-                    echo '🏥 Running health check...'
-                    sh '''
-                        docker exec ${CONTAINER_NAME} \
-                            curl -sf http://localhost:8080/up || \
-                            echo "⚠️  Health check inconclusive"
-                    '''
+                        echo '🏥 Running health check...'
+                        sh '''
+                            docker exec ${CONTAINER_NAME} \
+                                curl -sf http://localhost:8080/up || \
+                                echo "⚠️  Health check inconclusive"
+                        '''
 
-                    echo '📊 Container status:'
-                    sh '''
-                        docker inspect --format \
-                            "  Name: {{.Name}} | Status: {{.State.Status}}" \
-                            ${CONTAINER_NAME}
-                    '''
+                        echo '📊 Container status:'
+                        sh '''
+                            docker inspect --format \
+                                "  Name: {{.Name}} | Status: {{.State.Status}}" \
+                                ${CONTAINER_NAME}
+                        '''
+                    } else {
+                        bat '''
+                            @echo off
+                            docker run -d --name %CONTAINER_NAME% -p %LOCAL_PORT%:8080 -e APP_URL=http://localhost:%LOCAL_PORT% -e HEALTHCHECK_PATH=/up %REGISTRY%/%IMAGE_NAME%:%IMAGE_TAG%
+                        '''
+
+                        echo '⏳ Waiting for application to start...'
+                        bat 'timeout /t 10 /nobreak >nul'
+
+                        echo '🏥 Running health check...'
+                        bat '''
+                            @echo off
+                            docker exec %CONTAINER_NAME% curl -sf http://localhost:8080/up || echo "⚠️  Health check inconclusive"
+                        '''
+
+                        echo '📊 Container status:'
+                        bat '''
+                            @echo off
+                            docker inspect --format "  Name: {{.Name}} | Status: {{.State.Status}}" %CONTAINER_NAME%
+                        '''
+                    }
 
                     echo '✅ Container is running'
                 }
@@ -152,18 +199,35 @@ pipeline {
             steps {
                 script {
                     echo '🌐 Setting up Cloudflare quick tunnel...'
-                    sh '''
-                        if ! command -v cloudflared &> /dev/null; then
-                            echo "❌ cloudflared not installed"
-                            echo "   Install from: https://developers.cloudflare.com/cloudflare-one/connections/connect-applications/install-and-setup/"
-                            exit 1
-                        fi
+                    if (isUnix()) {
+                        sh '''
+                            if ! command -v cloudflared &> /dev/null; then
+                                echo "❌ cloudflared not installed"
+                                echo "   Install from: https://developers.cloudflare.com/cloudflare-one/connections/connect-applications/install-and-setup/"
+                                exit 1
+                            fi
 
-                        echo "Starting tunnel to http://localhost:${LOCAL_PORT}..."
-                        echo "Tunnel URL will be displayed below:"
+                            echo "Starting tunnel to http://localhost:${LOCAL_PORT}..."
+                            echo "Tunnel URL will be displayed below:"
 
-                        cloudflared tunnel --url http://localhost:${LOCAL_PORT}
-                    '''
+                            cloudflared tunnel --url http://localhost:${LOCAL_PORT}
+                        '''
+                    } else {
+                        bat '''
+                            @echo off
+                            where cloudflared >nul 2>&1
+                            if errorlevel 1 (
+                                echo "❌ cloudflared not installed"
+                                echo "   Install from: https://developers.cloudflare.com/cloudflare-one/connections/connect-applications/install-and-setup/"
+                                exit /b 1
+                            )
+
+                            echo "Starting tunnel to http://localhost:%LOCAL_PORT%..."
+                            echo "Tunnel URL will be displayed below:"
+
+                            cloudflared tunnel --url http://localhost:%LOCAL_PORT%
+                        '''
+                    }
                 }
             }
         }
