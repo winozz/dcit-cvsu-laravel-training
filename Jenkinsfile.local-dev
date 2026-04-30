@@ -1,0 +1,210 @@
+// Jenkins Pipeline Script - Local Dev Deployment
+//
+// Purpose: Fetch Docker image from GHCR, run locally, and tunnel via Cloudflare
+//
+// Setup:
+//   1. Create "Pipeline" job in Jenkins
+//   2. Add parameters in job configuration
+//   3. Point to this Jenkinsfile: Jenkinsfile.local-dev
+//
+
+pipeline {
+    agent any
+
+    parameters {
+        string(
+            name: 'IMAGE_TAG',
+            defaultValue: 'latest',
+            description: 'Docker image tag to deploy (latest, main, or git SHA)'
+        )
+        string(
+            name: 'LOCAL_PORT',
+            defaultValue: '8080',
+            description: 'Local port to expose the application on'
+        )
+        string(
+            name: 'CONTAINER_NAME',
+            defaultValue: 'laravel-dev',
+            description: 'Container name for the running instance'
+        )
+        booleanParam(
+            name: 'USE_CLOUDFLARE_TUNNEL',
+            defaultValue: true,
+            description: 'Create Cloudflare tunnel for public access'
+        )
+    }
+
+    environment {
+        REGISTRY = 'ghcr.io'
+        IMAGE_NAME = 'winozz/dcit-cvsu-laravel-training'
+        GITHUB_ACTOR = 'winozz'
+        GITHUB_TOKEN = credentials('github-token')  // Set in Jenkins > Manage Credentials
+    }
+
+    stages {
+        stage('Parameters') {
+            steps {
+                script {
+                    echo """
+╔════════════════════════════════════════════════════════════════╗
+║         Local Dev Deployment - Laravel PHP Project            ║
+╠════════════════════════════════════════════════════════════════╣
+║ Parameters:                                                    ║
+║   Image Tag:         ${params.IMAGE_TAG}
+║   Local Port:        ${params.LOCAL_PORT}
+║   Container Name:    ${params.CONTAINER_NAME}
+║   Cloudflare Tunnel: ${params.USE_CLOUDFLARE_TUNNEL}
+║                                                                ║
+║ Image:  ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG}
+╚════════════════════════════════════════════════════════════════╝
+                    """
+                }
+            }
+        }
+
+        stage('Login to GHCR') {
+            steps {
+                script {
+                    echo '📦 Logging in to GitHub Container Registry...'
+                    sh '''
+                        echo "${GITHUB_TOKEN}" | docker login ${REGISTRY} \
+                            -u ${GITHUB_ACTOR} \
+                            --password-stdin
+                    '''
+                    echo '✅ GHCR login successful'
+                }
+            }
+        }
+
+        stage('Pull Image') {
+            steps {
+                script {
+                    echo "📥 Pulling image ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG}..."
+                    sh '''
+                        docker pull --platform linux/amd64 \
+                            ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG} || \
+                            echo "⚠️  Pull failed, using cached image if available"
+                    '''
+                    sh '''
+                        echo "Image info:"
+                        docker inspect --format "  ID: {{.Id}}" \
+                            ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG} || true
+                        docker inspect --format "  Created: {{.Created}}" \
+                            ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG} || true
+                    '''
+                    echo '✅ Image pulled/cached'
+                }
+            }
+        }
+
+        stage('Cleanup Old Container') {
+            steps {
+                script {
+                    echo "🧹 Cleaning up old container ${params.CONTAINER_NAME}..."
+                    sh '''
+                        docker stop ${CONTAINER_NAME} 2>/dev/null || true
+                        docker rm ${CONTAINER_NAME} 2>/dev/null || true
+                    '''
+                    echo '✅ Old container removed'
+                }
+            }
+        }
+
+        stage('Run Container') {
+            steps {
+                script {
+                    echo "🚀 Starting container on port ${params.LOCAL_PORT}..."
+                    sh '''
+                        docker run -d \
+                            --name ${CONTAINER_NAME} \
+                            -p ${LOCAL_PORT}:8080 \
+                            -e APP_URL=http://localhost:${LOCAL_PORT} \
+                            -e HEALTHCHECK_PATH=/up \
+                            ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG}
+                    '''
+
+                    echo '⏳ Waiting for application to start...'
+                    sleep(time: 10, unit: 'SECONDS')
+
+                    echo '🏥 Running health check...'
+                    sh '''
+                        docker exec ${CONTAINER_NAME} \
+                            curl -sf http://localhost:8080/up || \
+                            echo "⚠️  Health check inconclusive"
+                    '''
+
+                    echo '📊 Container status:'
+                    sh '''
+                        docker inspect --format \
+                            "  Name: {{.Name}} | Status: {{.State.Status}}" \
+                            ${CONTAINER_NAME}
+                    '''
+
+                    echo '✅ Container is running'
+                }
+            }
+        }
+
+        stage('Cloudflare Tunnel') {
+            when {
+                expression { params.USE_CLOUDFLARE_TUNNEL == true }
+            }
+            steps {
+                script {
+                    echo '🌐 Setting up Cloudflare quick tunnel...'
+                    sh '''
+                        if ! command -v cloudflared &> /dev/null; then
+                            echo "❌ cloudflared not installed"
+                            echo "   Install from: https://developers.cloudflare.com/cloudflare-one/connections/connect-applications/install-and-setup/"
+                            exit 1
+                        fi
+
+                        echo "Starting tunnel to http://localhost:${LOCAL_PORT}..."
+                        echo "Tunnel URL will be displayed below:"
+
+                        cloudflared tunnel --url http://localhost:${LOCAL_PORT}
+                    '''
+                }
+            }
+        }
+
+        stage('Summary') {
+            steps {
+                script {
+                    echo """
+╔════════════════════════════════════════════════════════════════╗
+║                    ✅ Deployment Complete!                    ║
+╠════════════════════════════════════════════════════════════════╣
+║ Container:  ${params.CONTAINER_NAME}
+║ Image:      ${REGISTRY}/${IMAGE_NAME}:${params.IMAGE_TAG}
+║ Local URL:  http://localhost:${params.LOCAL_PORT}
+║ Health:     http://localhost:${params.LOCAL_PORT}/up
+║                                                                ║
+║ View Logs:                                                     ║
+║   docker logs -f ${params.CONTAINER_NAME}
+║                                                                ║
+║ Stop Container:                                                ║
+║   docker stop ${params.CONTAINER_NAME}
+║                                                                ║
+║ Remove Container:                                              ║
+║   docker rm ${params.CONTAINER_NAME}
+╚════════════════════════════════════════════════════════════════╝
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script {
+                echo "Build finished at ${new Date()}"
+            }
+        }
+        failure {
+            script {
+                echo '❌ Build failed - Check logs above'
+            }
+        }
+    }
+}
