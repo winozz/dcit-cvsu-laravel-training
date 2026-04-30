@@ -50,7 +50,10 @@ REM Use Jenkins WORKSPACE or fallback
 if not defined WORKSPACE set WORKSPACE=C:\Users\user\Documents\laravel-training\dcit-cvsu-laravel-training
 
 REM Use GitHub token (set via Jenkins credentials)
-if not defined GITHUB_TOKEN set GITHUB_TOKEN=ghp_YOUR_TOKEN_HERE
+if not defined GITHUB_TOKEN (
+    echo ERROR: GITHUB_TOKEN is not defined. Configure Jenkins credentials with ID github-token or set the environment variable.
+    exit /b 1
+)
 
 REM === Parameterized configuration (set per developer) ===
 if not defined IMAGE_TAG set IMAGE_TAG=latest
