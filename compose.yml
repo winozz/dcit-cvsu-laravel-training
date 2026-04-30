@@ -8,7 +8,7 @@ x-app-base: &app-base
   env_file:
     - .env
   environment:
-    APP_URL: http://localhost:8002
+    APP_URL: http://localhost:8010
     HEALTHCHECK_PATH: /up
     MAIL_MAILPIT_HOST: mailpit
     PUSHER_HOST: soketi
@@ -20,7 +20,7 @@ services:
     <<: *app-base
     stop_signal: SIGQUIT
     ports:
-      - "8002:8080"
+      - "8010:8080"
     depends_on:
       mailpit:
         condition: service_started
