@@ -213,25 +213,27 @@ REM ---------------------------------------------------------------
 call :log "[BONUS] Setting up Cloudflare Tunnel for temporary public access..."
 echo.
 
-REM Resolve cloudflared — use system install or download portable fallback
-set "CLOUDFLARED_CMD="
-where cloudflared >nul 2>&1
-if not errorlevel 1 (
-    set "CLOUDFLARED_CMD=cloudflared"
-    call :log "cloudflared found in PATH"
-) else (
-    set "CLOUDFLARED_EXE=%WORKSPACE%\cloudflared.exe"
-    if not exist "!CLOUDFLARED_EXE!" (
-        call :log "cloudflared not found - downloading portable version..."
-        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '!CLOUDFLARED_EXE!'" >nul 2>&1
-        if errorlevel 1 (
-            call :log "WARNING: Failed to download cloudflared - skipping tunnel"
-            goto :skip_tunnel
-        )
-        call :log "cloudflared downloaded successfully"
+REM Resolve cloudflared — ALWAYS use a portable download, ignoring any system install.
+REM Reason: a system-wide cloudflared.exe on this Jenkins host has a broken/stale build
+REM that routes `--url` to named-tunnel auth (verified via env-debug: even with a clean
+REM env, isolated USERPROFILE, and an explicit --config pointing at an empty yaml, the
+REM binary still demanded an origin cert). Downloading the latest portable into the
+REM workspace bypasses whatever's wrong with the system install.
+set "CLOUDFLARED_EXE=%WORKSPACE%\cloudflared.exe"
+if not exist "!CLOUDFLARED_EXE!" (
+    call :log "Downloading portable cloudflared..."
+    powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '!CLOUDFLARED_EXE!' -UseBasicParsing"
+    if errorlevel 1 (
+        call :log "WARNING: Failed to download cloudflared - skipping tunnel"
+        goto :skip_tunnel
     )
-    set "CLOUDFLARED_CMD=!CLOUDFLARED_EXE!"
+    call :log "Portable cloudflared downloaded"
 )
+set "CLOUDFLARED_CMD=!CLOUDFLARED_EXE!"
+
+REM Print version so we can confirm which binary is actually running
+call :log "cloudflared version:"
+"!CLOUDFLARED_CMD!" --version 2>&1
 
 REM Kill any existing tunnel so we get a fresh URL
 taskkill /F /IM cloudflared.exe >nul 2>&1
@@ -246,9 +248,16 @@ if exist "%WORKSPACE%\cloudflared-tunnel-err.log" del "%WORKSPACE%\cloudflared-t
 REM Create an isolated home directory for cloudflared so the Jenkins SYSTEM user's
 REM ~/.cloudflared/config.yml (which may contain a 'tunnel:' key for a named tunnel)
 REM is never read. cloudflared resolves ~ via the USERPROFILE env var in Go.
+REM
+REM Quick tunnels are not supported when config.yml/config.yaml exists under
+REM .cloudflared, so keep this isolated home clean and remove any stale files
+REM from previous runs before launching cloudflared.
 set "CF_HOME=%WORKSPACE%\.cf-home"
-mkdir "!CF_HOME!\.cloudflared" 2>nul
-(echo no-autoupdate: true) > "!CF_HOME!\.cloudflared\config.yml"
+set "CF_CONFIG_DIR=!CF_HOME!\.cloudflared"
+mkdir "!CF_CONFIG_DIR!" 2>nul
+if exist "!CF_CONFIG_DIR!\config.yml" del /f /q "!CF_CONFIG_DIR!\config.yml"
+if exist "!CF_CONFIG_DIR!\config.yaml" del /f /q "!CF_CONFIG_DIR!\config.yaml"
+if exist "!CF_CONFIG_DIR!\dummy-cert.pem" del /f /q "!CF_CONFIG_DIR!\dummy-cert.pem"
 
 REM NOTE: cloudflared writes ALL output (log lines, tunnel URL) to STDERR, not stdout.
 REM      We generate a one-shot launcher .bat that scrubs the env and runs cloudflared
@@ -260,12 +269,11 @@ REM      Env scrub: Jenkins SYSTEM may have TUNNEL_ORIGIN_CERT / TUNNEL_CONFIG s
 REM      machine-wide from prior debugging commits — those force named-tunnel mode and
 REM      break --url quick tunnels. We also point USERPROFILE/HOME at an isolated dir.
 REM
-REM      Critical: --config "<our empty yaml>" forces cloudflared to load OUR config and
-REM      ignore every default search path (~/.cloudflared, %ProgramData%\Cloudflare\, etc).
-REM      Any of those may contain a leftover named-tunnel definition that drags us out of
-REM      quick-tunnel mode even when --url is passed.
+REM      Critical: do NOT create or pass a config.yml for quick tunnels. Cloudflare's
+REM      docs explicitly state TryCloudflare is unsupported when a config file is present
+REM      in .cloudflared. The isolated home above is enough to avoid any SYSTEM-level
+REM      named-tunnel config without forcing cloudflared into locally-managed mode.
 set "TUNNEL_LAUNCHER=%WORKSPACE%\cloudflared-launch.bat"
-set "TUNNEL_CONFIG_FILE=!CF_HOME!\.cloudflared\config.yml"
 > "%TUNNEL_LAUNCHER%" echo @echo off
 >> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_ORIGIN_CERT="
 >> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_CONFIG="
@@ -277,9 +285,9 @@ set "TUNNEL_CONFIG_FILE=!CF_HOME!\.cloudflared\config.yml"
 >> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo USERPROFILE=%%USERPROFILE%%
 >> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo TUNNEL_ORIGIN_CERT=[%%TUNNEL_ORIGIN_CERT%%]
 >> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo TUNNEL_CONFIG=[%%TUNNEL_CONFIG%%]
->> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo CONFIG_FILE=!TUNNEL_CONFIG_FILE!
+>> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo CONFIG_DIR=!CF_CONFIG_DIR!
 >> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo === END DEBUG ===
->> "%TUNNEL_LAUNCHER%" echo "!CLOUDFLARED_CMD!" --config "!TUNNEL_CONFIG_FILE!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate ^>^> "%WORKSPACE%\cloudflared-tunnel.log" 2^>^&1
+>> "%TUNNEL_LAUNCHER%" echo "!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate ^>^> "%WORKSPACE%\cloudflared-tunnel.log" 2^>^&1
 
 start "cloudflared-tunnel" /B "%TUNNEL_LAUNCHER%"
 
