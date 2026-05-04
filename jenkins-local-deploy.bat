@@ -250,28 +250,14 @@ set "CF_HOME=%WORKSPACE%\.cf-home"
 mkdir "!CF_HOME!\.cloudflared" 2>nul
 (echo no-autoupdate: true) > "!CF_HOME!\.cloudflared\config.yml"
 
-REM cloudflared 2025.x quick tunnel logic:
-REM   - File missing      → fatal "client didn't specify origincert path"
-REM   - File present + empty → fallback to quick tunnel mode (works!)
-REM   - File present + any content → must be a valid cert.pem with TOKEN section
-REM
-REM We need a TRULY 0-byte file. Verified locally with `touch` in git bash.
-REM `type nul >` and `echo. >` in cmd.exe both produce non-empty files
-REM (BOM bytes or trailing newline). Use PowerShell to write 0 bytes reliably.
-set "DUMMY_CERT=!CF_HOME!\.cloudflared\dummy-cert.pem"
-if exist "!DUMMY_CERT!" del "!DUMMY_CERT!"
-powershell -NoProfile -Command "[System.IO.File]::WriteAllBytes('!DUMMY_CERT!', [byte[]]@())"
-
 REM NOTE: cloudflared writes ALL output (log lines, tunnel URL) to STDERR, not stdout.
 REM      We therefore redirect stderr -> cloudflared-tunnel.log (the file polled below)
 REM      and stdout -> cloudflared-tunnel-err.log (will be empty; kept for symmetry).
 REM
-REM      cloudflared 2025.x errors with "client didn't specify origincert path"
-REM      when TUNNEL_ORIGIN_CERT is empty AND no cert.pem is found in default
-REM      locations. Setting TUNNEL_ORIGIN_CERT to ANY path (existent or not)
-REM      bypasses this check and lets the quick tunnel proceed normally — the
-REM      cert is not actually used for trycloudflare.com tunnels.
-powershell -NoProfile -Command "$env:TUNNEL_ORIGIN_CERT='!CF_HOME!\.cloudflared\dummy-cert.pem'; $env:USERPROFILE='!CF_HOME!'; $env:HOME='!CF_HOME!'; Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate') -RedirectStandardError '%WORKSPACE%\cloudflared-tunnel.log' -RedirectStandardOutput '%WORKSPACE%\cloudflared-tunnel-err.log' -NoNewWindow -PassThru | Out-Null"
+REM      With an isolated home, quick tunnels succeed without setting origincert.
+REM      If Jenkins inherited TUNNEL_ORIGIN_CERT from elsewhere, remove it first
+REM      so cloudflared does not try to decode an unrelated or empty cert file.
+powershell -NoProfile -Command "Remove-Item Env:TUNNEL_ORIGIN_CERT -ErrorAction SilentlyContinue; $env:USERPROFILE='!CF_HOME!'; $env:HOME='!CF_HOME!'; Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate') -RedirectStandardError '%WORKSPACE%\cloudflared-tunnel.log' -RedirectStandardOutput '%WORKSPACE%\cloudflared-tunnel-err.log' -NoNewWindow -PassThru | Out-Null"
 
 REM Poll log file for tunnel URL (up to 30 seconds)
 call :log "Waiting for tunnel URL..."
