@@ -250,6 +250,11 @@ set "CF_HOME=%WORKSPACE%\.cf-home"
 mkdir "!CF_HOME!\.cloudflared" 2>nul
 (echo no-autoupdate: true) > "!CF_HOME!\.cloudflared\config.yml"
 
+REM Create an empty dummy cert file. cloudflared 2025.x checks that the path
+REM in TUNNEL_ORIGIN_CERT exists as a readable file; for quick tunnels the
+REM contents are never actually used, so an empty file is sufficient.
+type nul > "!CF_HOME!\.cloudflared\dummy-cert.pem"
+
 REM NOTE: cloudflared writes ALL output (log lines, tunnel URL) to STDERR, not stdout.
 REM      We therefore redirect stderr -> cloudflared-tunnel.log (the file polled below)
 REM      and stdout -> cloudflared-tunnel-err.log (will be empty; kept for symmetry).
