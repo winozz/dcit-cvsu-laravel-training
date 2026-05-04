@@ -253,7 +253,13 @@ mkdir "!CF_HOME!\.cloudflared" 2>nul
 REM NOTE: cloudflared writes ALL output (log lines, tunnel URL) to STDERR, not stdout.
 REM      We therefore redirect stderr -> cloudflared-tunnel.log (the file polled below)
 REM      and stdout -> cloudflared-tunnel-err.log (will be empty; kept for symmetry).
-powershell -NoProfile -Command "Remove-Item Env:TUNNEL_ORIGIN_CERT -ErrorAction SilentlyContinue; $env:USERPROFILE='!CF_HOME!'; $env:HOME='!CF_HOME!'; Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%') -RedirectStandardError '%WORKSPACE%\cloudflared-tunnel.log' -RedirectStandardOutput '%WORKSPACE%\cloudflared-tunnel-err.log' -NoNewWindow -PassThru | Out-Null"
+REM
+REM      cloudflared 2025.x errors with "client didn't specify origincert path"
+REM      when TUNNEL_ORIGIN_CERT is empty AND no cert.pem is found in default
+REM      locations. Setting TUNNEL_ORIGIN_CERT to ANY path (existent or not)
+REM      bypasses this check and lets the quick tunnel proceed normally — the
+REM      cert is not actually used for trycloudflare.com tunnels.
+powershell -NoProfile -Command "$env:TUNNEL_ORIGIN_CERT='!CF_HOME!\.cloudflared\dummy-cert.pem'; $env:USERPROFILE='!CF_HOME!'; $env:HOME='!CF_HOME!'; Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate') -RedirectStandardError '%WORKSPACE%\cloudflared-tunnel.log' -RedirectStandardOutput '%WORKSPACE%\cloudflared-tunnel-err.log' -NoNewWindow -PassThru | Out-Null"
 
 REM Poll log file for tunnel URL (up to 30 seconds)
 call :log "Waiting for tunnel URL..."
