@@ -254,10 +254,8 @@ REM .cloudflared, so keep this isolated home clean and remove any stale files
 REM from previous runs before launching cloudflared.
 set "CF_HOME=%WORKSPACE%\.cf-home"
 set "CF_CONFIG_DIR=!CF_HOME!\.cloudflared"
-mkdir "!CF_CONFIG_DIR!" 2>nul
-if exist "!CF_CONFIG_DIR!\config.yml" del /f /q "!CF_CONFIG_DIR!\config.yml"
-if exist "!CF_CONFIG_DIR!\config.yaml" del /f /q "!CF_CONFIG_DIR!\config.yaml"
-if exist "!CF_CONFIG_DIR!\dummy-cert.pem" del /f /q "!CF_CONFIG_DIR!\dummy-cert.pem"
+if exist "!CF_HOME!" rmdir /s /q "!CF_HOME!"
+mkdir "!CF_HOME!" 2>nul
 
 REM NOTE: cloudflared writes ALL output (log lines, tunnel URL) to STDERR, not stdout.
 REM      We generate a one-shot launcher .bat that scrubs the env and runs cloudflared
@@ -275,16 +273,13 @@ REM      in .cloudflared. The isolated home above is enough to avoid any SYSTEM-
 REM      named-tunnel config without forcing cloudflared into locally-managed mode.
 set "TUNNEL_LAUNCHER=%WORKSPACE%\cloudflared-launch.bat"
 > "%TUNNEL_LAUNCHER%" echo @echo off
->> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_ORIGIN_CERT="
->> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_CONFIG="
->> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_TOKEN="
->> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_ID="
+>> "%TUNNEL_LAUNCHER%" echo for /f "tokens=1 delims==" %%%%V in ('set TUNNEL_ 2^^^>nul') do set "%%%%V="
 >> "%TUNNEL_LAUNCHER%" echo set "USERPROFILE=!CF_HOME!"
 >> "%TUNNEL_LAUNCHER%" echo set "HOME=!CF_HOME!"
 >> "%TUNNEL_LAUNCHER%" echo ^> "%WORKSPACE%\cloudflared-tunnel.log" echo === LAUNCHER ENV DEBUG ===
+>> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo CLOUDFLARED_CMD=!CLOUDFLARED_CMD!
 >> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo USERPROFILE=%%USERPROFILE%%
->> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo TUNNEL_ORIGIN_CERT=[%%TUNNEL_ORIGIN_CERT%%]
->> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo TUNNEL_CONFIG=[%%TUNNEL_CONFIG%%]
+>> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" set TUNNEL_ 2^>nul
 >> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo CONFIG_DIR=!CF_CONFIG_DIR!
 >> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo === END DEBUG ===
 >> "%TUNNEL_LAUNCHER%" echo "!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate ^>^> "%WORKSPACE%\cloudflared-tunnel.log" 2^>^&1
