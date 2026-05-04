@@ -213,14 +213,17 @@ REM ---------------------------------------------------------------
 call :log "[BONUS] Setting up Cloudflare Tunnel for temporary public access..."
 echo.
 
-REM Check if cloudflared is installed, download if not
+REM Resolve cloudflared — use system install or download portable fallback
+set "CLOUDFLARED_CMD="
 where cloudflared >nul 2>&1
-if errorlevel 1 (
-    call :log "cloudflared not found - downloading portable version..."
+if not errorlevel 1 (
+    set "CLOUDFLARED_CMD=cloudflared"
+    call :log "cloudflared found in PATH"
+) else (
     set "CLOUDFLARED_EXE=%WORKSPACE%\cloudflared.exe"
     if not exist "!CLOUDFLARED_EXE!" (
-        call :log "Downloading cloudflared.exe..."
-        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '!CLOUDFLARED_EXE!'"
+        call :log "cloudflared not found - downloading portable version..."
+        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '!CLOUDFLARED_EXE!'" >nul 2>&1
         if errorlevel 1 (
             call :log "WARNING: Failed to download cloudflared - skipping tunnel"
             goto :skip_tunnel
@@ -228,25 +231,22 @@ if errorlevel 1 (
         call :log "cloudflared downloaded successfully"
     )
     set "CLOUDFLARED_CMD=!CLOUDFLARED_EXE!"
-) else (
-    set "CLOUDFLARED_CMD=cloudflared"
 )
 
-call :log "Starting Cloudflare quick tunnel..."
-call :log "  Tunnel URL will be displayed below (watch for temporary URL)"
-echo.
+REM Kill any existing tunnel so we get a fresh URL
+taskkill /F /IM cloudflared.exe >nul 2>&1
 
-REM Start cloudflared tunnel (this will run indefinitely)
-REM Note: This creates a temporary quick tunnel - no account needed
-call :log "Cloudflare tunnel starting..."
-call :log "  Access at: https://[tunnel-id].trycloudflare.com"
-echo.
+call :log "Starting Cloudflare quick tunnel (trycloudflare.com - no account needed)..."
+call :log "  Tunnel URL will appear in: %WORKSPACE%\cloudflared-tunnel.log"
 
-REM Start quick tunnel in background (trycloudflare.com - no account needed)
-start "Cloudflare Tunnel" /B "!CLOUDFLARED_CMD!" --no-autoupdate tunnel --url http://localhost:%LOCAL_PORT%
-call :log "Cloudflare tunnel started in background"
-call :log "  Tunnel URL will appear in process output (search for trycloudflare.com)"
-call :log "  To view: tasklist | findstr cloudflared"
+REM Run in background, write output to log file so URL is capturable
+start "Cloudflare Tunnel" /B cmd /c ""!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate > "%WORKSPACE%\cloudflared-tunnel.log" 2>&1"
+
+REM Wait a few seconds then extract the tunnel URL from the log
+ping -n 6 127.0.0.1 >nul 2>&1
+for /f "tokens=*" %%U in ('findstr /i "trycloudflare.com" "%WORKSPACE%\cloudflared-tunnel.log" 2^>nul') do (
+    call :log "  Tunnel URL: %%U"
+)
 
 :skip_tunnel
 
