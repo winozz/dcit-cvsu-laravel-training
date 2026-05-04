@@ -243,16 +243,17 @@ REM Delete old logs so we don't read stale URLs
 if exist "%WORKSPACE%\cloudflared-tunnel.log" del "%WORKSPACE%\cloudflared-tunnel.log"
 if exist "%WORKSPACE%\cloudflared-tunnel-err.log" del "%WORKSPACE%\cloudflared-tunnel-err.log"
 
-REM Write a minimal cloudflared config so any system-level named tunnel config is ignored.
-REM Without this, cloudflared reads ~/.cloudflared/config.yml (or the SYSTEM profile's
-REM equivalent) which may reference a named tunnel that requires cert.pem.
-REM IMPORTANT: must contain real YAML (not just a comment) or cloudflared rejects it as empty.
-set "CF_EMPTY_CONFIG=%WORKSPACE%\cloudflared-quick.yml"
-(echo no-autoupdate: true) > "!CF_EMPTY_CONFIG!"
+REM Create an isolated home directory for cloudflared so the Jenkins SYSTEM user's
+REM ~/.cloudflared/config.yml (which may contain a 'tunnel:' key for a named tunnel)
+REM is never read. cloudflared resolves ~ via the USERPROFILE env var in Go.
+set "CF_HOME=%WORKSPACE%\.cf-home"
+mkdir "!CF_HOME!\.cloudflared" 2>nul
+(echo no-autoupdate: true) > "!CF_HOME!\.cloudflared\config.yml"
 
-REM Use PowerShell to launch cloudflared with a clean USERPROFILE/HOME
-REM and an explicit --config pointing to the blank file above.
-powershell -NoProfile -Command "$env:USERPROFILE='%WORKSPACE%'; $env:HOME='%WORKSPACE%'; $env:TUNNEL_ORIGIN_CERT=''; Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--config','!CF_EMPTY_CONFIG!','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate') -RedirectStandardOutput '%WORKSPACE%\cloudflared-tunnel.log' -RedirectStandardError '%WORKSPACE%\cloudflared-tunnel-err.log' -NoNewWindow -PassThru | Out-Null"
+REM NOTE: cloudflared writes ALL output (log lines, tunnel URL) to STDERR, not stdout.
+REM      We therefore redirect stderr -> cloudflared-tunnel.log (the file polled below)
+REM      and stdout -> cloudflared-tunnel-err.log (will be empty; kept for symmetry).
+powershell -NoProfile -Command "Remove-Item Env:TUNNEL_ORIGIN_CERT -ErrorAction SilentlyContinue; $env:USERPROFILE='!CF_HOME!'; $env:HOME='!CF_HOME!'; Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%') -RedirectStandardError '%WORKSPACE%\cloudflared-tunnel.log' -RedirectStandardOutput '%WORKSPACE%\cloudflared-tunnel-err.log' -NoNewWindow -PassThru | Out-Null"
 
 REM Poll log file for tunnel URL (up to 30 seconds)
 call :log "Waiting for tunnel URL..."
@@ -263,16 +264,16 @@ ping -n 3 127.0.0.1 >nul 2>&1
 set /a TUNNEL_WAIT+=3
 for /f "tokens=*" %%U in ('findstr /i "trycloudflare.com" "%WORKSPACE%\cloudflared-tunnel.log" 2^>nul') do set "TUNNEL_LINE=%%U"
 if defined TUNNEL_LINE (
-    REM Extract just the URL from the log line
-    for /f "tokens=*" %%X in ('echo !TUNNEL_LINE! ^| findstr /o "https://[^ ]*trycloudflare.com[^ ]*"') do set "TUNNEL_URL=%%X"
+    REM Extract just the URL using PowerShell regex (findstr lacks proper regex on Windows)
+    for /f "usebackq" %%X in (`powershell -NoProfile -Command "[regex]::Match('!TUNNEL_LINE!', 'https://\S+trycloudflare\.com').Value"`) do set "TUNNEL_URL=%%X"
     if not defined TUNNEL_URL set "TUNNEL_URL=!TUNNEL_LINE!"
     goto :tunnel_found
 )
 if !TUNNEL_WAIT! geq 30 (
     call :log "WARNING: Tunnel URL not found after 30 seconds"
-    if exist "%WORKSPACE%\cloudflared-tunnel-err.log" (
-        call :log "cloudflared error log:"
-        type "%WORKSPACE%\cloudflared-tunnel-err.log"
+    if exist "%WORKSPACE%\cloudflared-tunnel.log" (
+        call :log "cloudflared log:"
+        type "%WORKSPACE%\cloudflared-tunnel.log"
     )
     goto :skip_tunnel
 )
