@@ -239,15 +239,13 @@ taskkill /F /IM cloudflared.exe >nul 2>&1
 call :log "Starting Cloudflare quick tunnel (trycloudflare.com - no account needed)..."
 call :log "  Tunnel URL will appear in: %WORKSPACE%\cloudflared-tunnel.log"
 
-REM Override home dir so cloudflared ignores any system-level named tunnel config
-set "USERPROFILE=%WORKSPACE%"
-set "HOME=%WORKSPACE%"
-
-REM Delete old log so we don't read a stale URL
+REM Delete old logs so we don't read stale URLs
 if exist "%WORKSPACE%\cloudflared-tunnel.log" del "%WORKSPACE%\cloudflared-tunnel.log"
+if exist "%WORKSPACE%\cloudflared-tunnel-err.log" del "%WORKSPACE%\cloudflared-tunnel-err.log"
 
-REM Run in background, write output to log file so URL is capturable
-start "Cloudflare Tunnel" /B cmd /c "set USERPROFILE=%WORKSPACE%& set HOME=%WORKSPACE%& "!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate > "%WORKSPACE%\cloudflared-tunnel.log" 2>&1"
+REM Use PowerShell to launch cloudflared with a clean USERPROFILE/HOME
+REM so it ignores any SYSTEM-level named tunnel config that requires cert.pem
+powershell -NoProfile -Command "$env:USERPROFILE='%WORKSPACE%'; $env:HOME='%WORKSPACE%'; $env:TUNNEL_ORIGIN_CERT=''; Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate') -RedirectStandardOutput '%WORKSPACE%\cloudflared-tunnel.log' -RedirectStandardError '%WORKSPACE%\cloudflared-tunnel-err.log' -NoNewWindow -PassThru | Out-Null"
 
 REM Poll log file for tunnel URL (up to 30 seconds)
 call :log "Waiting for tunnel URL..."
@@ -264,7 +262,11 @@ if defined TUNNEL_LINE (
     goto :tunnel_found
 )
 if !TUNNEL_WAIT! geq 30 (
-    call :log "WARNING: Tunnel URL not found after 30 seconds - check %WORKSPACE%\cloudflared-tunnel.log"
+    call :log "WARNING: Tunnel URL not found after 30 seconds"
+    if exist "%WORKSPACE%\cloudflared-tunnel-err.log" (
+        call :log "cloudflared error log:"
+        type "%WORKSPACE%\cloudflared-tunnel-err.log"
+    )
     goto :skip_tunnel
 )
 goto :tunnel_wait_loop
