@@ -243,14 +243,39 @@ REM Override home dir so cloudflared ignores any system-level named tunnel confi
 set "USERPROFILE=%WORKSPACE%"
 set "HOME=%WORKSPACE%"
 
+REM Delete old log so we don't read a stale URL
+if exist "%WORKSPACE%\cloudflared-tunnel.log" del "%WORKSPACE%\cloudflared-tunnel.log"
+
 REM Run in background, write output to log file so URL is capturable
 start "Cloudflare Tunnel" /B cmd /c "set USERPROFILE=%WORKSPACE%& set HOME=%WORKSPACE%& "!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate > "%WORKSPACE%\cloudflared-tunnel.log" 2>&1"
 
-REM Wait a few seconds then extract the tunnel URL from the log
-ping -n 6 127.0.0.1 >nul 2>&1
-for /f "tokens=*" %%U in ('findstr /i "trycloudflare.com" "%WORKSPACE%\cloudflared-tunnel.log" 2^>nul') do (
-    call :log "  Tunnel URL: %%U"
+REM Poll log file for tunnel URL (up to 30 seconds)
+call :log "Waiting for tunnel URL..."
+set TUNNEL_URL=
+set TUNNEL_WAIT=0
+:tunnel_wait_loop
+ping -n 3 127.0.0.1 >nul 2>&1
+set /a TUNNEL_WAIT+=3
+for /f "tokens=*" %%U in ('findstr /i "trycloudflare.com" "%WORKSPACE%\cloudflared-tunnel.log" 2^>nul') do set "TUNNEL_LINE=%%U"
+if defined TUNNEL_LINE (
+    REM Extract just the URL from the log line
+    for /f "tokens=*" %%X in ('echo !TUNNEL_LINE! ^| findstr /o "https://[^ ]*trycloudflare.com[^ ]*"') do set "TUNNEL_URL=%%X"
+    if not defined TUNNEL_URL set "TUNNEL_URL=!TUNNEL_LINE!"
+    goto :tunnel_found
 )
+if !TUNNEL_WAIT! geq 30 (
+    call :log "WARNING: Tunnel URL not found after 30 seconds - check %WORKSPACE%\cloudflared-tunnel.log"
+    goto :skip_tunnel
+)
+goto :tunnel_wait_loop
+
+:tunnel_found
+echo.
+echo ============================================================
+call :log "Cloudflare Tunnel is LIVE!"
+call :log "  Public URL: !TUNNEL_URL!"
+echo ============================================================
+echo.
 
 :skip_tunnel
 
