@@ -256,11 +256,16 @@ REM      with redirection. Going through a separate .bat avoids the nested-quoti
 REM      of `start /B cmd /c "..."`, which silently drops redirection when paths/args
 REM      contain quotes or spaces.
 REM
-REM      Env scrub rationale: Jenkins SYSTEM may have TUNNEL_ORIGIN_CERT / TUNNEL_CONFIG
-REM      set machine-wide from prior debugging commits — those force named-tunnel mode
-REM      and break --url quick tunnels. We also point USERPROFILE/HOME at an isolated
-REM      dir so cloudflared cannot read the SYSTEM profile's ~/.cloudflared/config.yml.
+REM      Env scrub: Jenkins SYSTEM may have TUNNEL_ORIGIN_CERT / TUNNEL_CONFIG set
+REM      machine-wide from prior debugging commits — those force named-tunnel mode and
+REM      break --url quick tunnels. We also point USERPROFILE/HOME at an isolated dir.
+REM
+REM      Critical: --config "<our empty yaml>" forces cloudflared to load OUR config and
+REM      ignore every default search path (~/.cloudflared, %ProgramData%\Cloudflare\, etc).
+REM      Any of those may contain a leftover named-tunnel definition that drags us out of
+REM      quick-tunnel mode even when --url is passed.
 set "TUNNEL_LAUNCHER=%WORKSPACE%\cloudflared-launch.bat"
+set "TUNNEL_CONFIG_FILE=!CF_HOME!\.cloudflared\config.yml"
 > "%TUNNEL_LAUNCHER%" echo @echo off
 >> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_ORIGIN_CERT="
 >> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_CONFIG="
@@ -268,7 +273,13 @@ set "TUNNEL_LAUNCHER=%WORKSPACE%\cloudflared-launch.bat"
 >> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_ID="
 >> "%TUNNEL_LAUNCHER%" echo set "USERPROFILE=!CF_HOME!"
 >> "%TUNNEL_LAUNCHER%" echo set "HOME=!CF_HOME!"
->> "%TUNNEL_LAUNCHER%" echo "!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate ^> "%WORKSPACE%\cloudflared-tunnel-err.log" 2^> "%WORKSPACE%\cloudflared-tunnel.log"
+>> "%TUNNEL_LAUNCHER%" echo ^> "%WORKSPACE%\cloudflared-tunnel.log" echo === LAUNCHER ENV DEBUG ===
+>> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo USERPROFILE=%%USERPROFILE%%
+>> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo TUNNEL_ORIGIN_CERT=[%%TUNNEL_ORIGIN_CERT%%]
+>> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo TUNNEL_CONFIG=[%%TUNNEL_CONFIG%%]
+>> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo CONFIG_FILE=!TUNNEL_CONFIG_FILE!
+>> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo === END DEBUG ===
+>> "%TUNNEL_LAUNCHER%" echo "!CLOUDFLARED_CMD!" --config "!TUNNEL_CONFIG_FILE!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate ^>^> "%WORKSPACE%\cloudflared-tunnel.log" 2^>^&1
 
 start "cloudflared-tunnel" /B "%TUNNEL_LAUNCHER%"
 
