@@ -251,28 +251,26 @@ mkdir "!CF_HOME!\.cloudflared" 2>nul
 (echo no-autoupdate: true) > "!CF_HOME!\.cloudflared\config.yml"
 
 REM NOTE: cloudflared writes ALL output (log lines, tunnel URL) to STDERR, not stdout.
-REM      We launch cloudflared via cmd /c so the shell does the stderr/stdout redirection
-REM      directly on the cloudflared process (file handles are inherited by the child).
+REM      We generate a one-shot launcher .bat that scrubs the env and runs cloudflared
+REM      with redirection. Going through a separate .bat avoids the nested-quoting hell
+REM      of `start /B cmd /c "..."`, which silently drops redirection when paths/args
+REM      contain quotes or spaces.
 REM
-REM      Critical: Jenkins SYSTEM env may have TUNNEL_ORIGIN_CERT / TUNNEL_CONFIG set
-REM      machine-wide from prior debugging commits — those force named-tunnel mode and
-REM      break --url quick tunnels. We unset them in THIS process before launching, so
-REM      the cmd /c child inherits a clean env. We also point USERPROFILE/HOME at an
-REM      isolated dir so cloudflared cannot read the SYSTEM profile's config.yml.
-set "TUNNEL_ORIGIN_CERT="
-set "TUNNEL_CONFIG="
-set "TUNNEL_TOKEN="
-set "TUNNEL_ID="
-set "ORIG_USERPROFILE=%USERPROFILE%"
-set "ORIG_HOME=%HOME%"
-set "USERPROFILE=!CF_HOME!"
-set "HOME=!CF_HOME!"
+REM      Env scrub rationale: Jenkins SYSTEM may have TUNNEL_ORIGIN_CERT / TUNNEL_CONFIG
+REM      set machine-wide from prior debugging commits — those force named-tunnel mode
+REM      and break --url quick tunnels. We also point USERPROFILE/HOME at an isolated
+REM      dir so cloudflared cannot read the SYSTEM profile's ~/.cloudflared/config.yml.
+set "TUNNEL_LAUNCHER=%WORKSPACE%\cloudflared-launch.bat"
+> "%TUNNEL_LAUNCHER%" echo @echo off
+>> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_ORIGIN_CERT="
+>> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_CONFIG="
+>> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_TOKEN="
+>> "%TUNNEL_LAUNCHER%" echo set "TUNNEL_ID="
+>> "%TUNNEL_LAUNCHER%" echo set "USERPROFILE=!CF_HOME!"
+>> "%TUNNEL_LAUNCHER%" echo set "HOME=!CF_HOME!"
+>> "%TUNNEL_LAUNCHER%" echo "!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate ^> "%WORKSPACE%\cloudflared-tunnel-err.log" 2^> "%WORKSPACE%\cloudflared-tunnel.log"
 
-start "cloudflared-tunnel" /B cmd /c ""!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate >"%WORKSPACE%\cloudflared-tunnel-err.log" 2>"%WORKSPACE%\cloudflared-tunnel.log""
-
-REM Restore USERPROFILE/HOME for the rest of the script
-set "USERPROFILE=%ORIG_USERPROFILE%"
-set "HOME=%ORIG_HOME%"
+start "cloudflared-tunnel" /B "%TUNNEL_LAUNCHER%"
 
 REM Poll log file for tunnel URL (up to 30 seconds)
 call :log "Waiting for tunnel URL..."
