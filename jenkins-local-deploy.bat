@@ -14,9 +14,15 @@ REM    3. Add String Parameters:
 REM       Name             Default Value          Description
 REM       ----             -------------          -----------
 REM       IMAGE_TAG        latest                 Docker image tag (latest, main, sha-xxx)
-REM       LOCAL_PORT       8080                   Local port to run on
+REM       LOCAL_PORT       9090                   Local port to run on
 REM       CONTAINER_NAME   laravel-dev            Container name
 REM       TUNNEL_NAME      laravel-tunnel         Cloudflare tunnel name
+REM
+REM    4. Under Environment > Use secret text(s) or file(s), add:
+REM       Kind             Variable               Credential ID
+REM       ----             --------               -------------
+REM       Secret text      GITHUB_TOKEN           github-token
+REM       Secret text      APP_KEY                laravel-app-key
 REM
 REM  Usage:
 REM    Developers trigger in Jenkins UI and select image tag to test
@@ -49,13 +55,18 @@ set GITHUB_ACTOR=winozz
 REM Use Jenkins WORKSPACE or fallback
 if not defined WORKSPACE set WORKSPACE=C:\Users\user\Documents\laravel-training\dcit-cvsu-laravel-training
 
-REM Use GitHub token (set via Jenkins credentials)
+REM Validate required credentials (set via Jenkins Environment > Use secret text)
 if not defined GITHUB_TOKEN (
-    echo ERROR: GITHUB_TOKEN is not defined. Configure Jenkins credentials with ID github-token or set the environment variable.
+    echo ERROR: GITHUB_TOKEN is not defined. Add Secret text credential with ID "github-token" in Jenkins Environment.
     exit /b 1
-) else (
-    call :log "GITHUB_TOKEN is defined and available"
 )
+call :log "GITHUB_TOKEN is defined"
+
+if not defined APP_KEY (
+    echo ERROR: APP_KEY is not defined. Add Secret text credential with ID "laravel-app-key" in Jenkins Environment.
+    exit /b 1
+)
+call :log "APP_KEY is defined"
 
 REM === Parameterized configuration (set per developer) ===
 if not defined IMAGE_TAG set IMAGE_TAG=latest
@@ -147,9 +158,11 @@ call :log "[4/4] Running container on port %LOCAL_PORT%..."
 call :log "Starting container..."
 docker run -d --name %CONTAINER_NAME% ^
     -p %LOCAL_PORT%:8080 ^
+    -e APP_KEY=%APP_KEY% ^
     -e APP_URL=http://localhost:%LOCAL_PORT% ^
-    -e APP_ENV=local ^
-    -e APP_DEBUG=true ^
+    -e APP_ENV=staging ^
+    -e APP_DEBUG=false ^
+    -e LOG_CHANNEL=stderr ^
     -e HEALTHCHECK_PATH=/up ^
     %REGISTRY%/%IMAGE_NAME%:%IMAGE_TAG%
 
