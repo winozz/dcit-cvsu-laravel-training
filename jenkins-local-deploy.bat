@@ -243,9 +243,15 @@ REM Delete old logs so we don't read stale URLs
 if exist "%WORKSPACE%\cloudflared-tunnel.log" del "%WORKSPACE%\cloudflared-tunnel.log"
 if exist "%WORKSPACE%\cloudflared-tunnel-err.log" del "%WORKSPACE%\cloudflared-tunnel-err.log"
 
+REM Write a blank cloudflared config so any system-level named tunnel config is ignored.
+REM Without this, cloudflared reads ~/.cloudflared/config.yml (or the SYSTEM profile's
+REM equivalent) which may reference a named tunnel that requires cert.pem.
+set "CF_EMPTY_CONFIG=%WORKSPACE%\cloudflared-quick.yml"
+echo # quick-tunnel only - no named tunnel config > "!CF_EMPTY_CONFIG!"
+
 REM Use PowerShell to launch cloudflared with a clean USERPROFILE/HOME
-REM so it ignores any SYSTEM-level named tunnel config that requires cert.pem
-powershell -NoProfile -Command "$env:USERPROFILE='%WORKSPACE%'; $env:HOME='%WORKSPACE%'; $env:TUNNEL_ORIGIN_CERT=''; Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate') -RedirectStandardOutput '%WORKSPACE%\cloudflared-tunnel.log' -RedirectStandardError '%WORKSPACE%\cloudflared-tunnel-err.log' -NoNewWindow -PassThru | Out-Null"
+REM and an explicit --config pointing to the blank file above.
+powershell -NoProfile -Command "$env:USERPROFILE='%WORKSPACE%'; $env:HOME='%WORKSPACE%'; $env:TUNNEL_ORIGIN_CERT=''; Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--config','!CF_EMPTY_CONFIG!','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate') -RedirectStandardOutput '%WORKSPACE%\cloudflared-tunnel.log' -RedirectStandardError '%WORKSPACE%\cloudflared-tunnel-err.log' -NoNewWindow -PassThru | Out-Null"
 
 REM Poll log file for tunnel URL (up to 30 seconds)
 call :log "Waiting for tunnel URL..."
