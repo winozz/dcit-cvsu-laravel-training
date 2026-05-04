@@ -293,11 +293,8 @@ set TUNNEL_WAIT=0
 :tunnel_wait_loop
 ping -n 3 127.0.0.1 >nul 2>&1
 set /a TUNNEL_WAIT+=3
-for /f "tokens=*" %%U in ('findstr /i "trycloudflare.com" "%WORKSPACE%\cloudflared-tunnel.log" 2^>nul') do set "TUNNEL_LINE=%%U"
-if defined TUNNEL_LINE (
-    REM Extract just the URL using PowerShell regex (findstr lacks proper regex on Windows)
-    for /f "usebackq" %%X in (`powershell -NoProfile -Command "[regex]::Match('!TUNNEL_LINE!', 'https://\S+trycloudflare\.com').Value"`) do set "TUNNEL_URL=%%X"
-    if not defined TUNNEL_URL set "TUNNEL_URL=!TUNNEL_LINE!"
+for /f "usebackq delims=" %%X in (`powershell -NoProfile -Command "$match = Select-String -Path '%WORKSPACE%\cloudflared-tunnel.log' -Pattern 'https://\S+trycloudflare\.com' | Select-Object -Last 1; if ($match) { [regex]::Match($match.Line, 'https://\S+trycloudflare\.com').Value }"`) do set "TUNNEL_URL=%%X"
+if defined TUNNEL_URL (
     goto :tunnel_found
 )
 if !TUNNEL_WAIT! geq 30 (
