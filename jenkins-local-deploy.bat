@@ -159,7 +159,7 @@ call :log "Starting container..."
 docker run -d --name %CONTAINER_NAME% ^
     -p %LOCAL_PORT%:8080 ^
     -e APP_KEY=%APP_KEY% ^
-    -e APP_URL=http://localhost:%LOCAL_PORT% ^
+    -e APP_URL=http://127.0.0.1:%LOCAL_PORT% ^
     -e APP_ENV=staging ^
     -e APP_DEBUG=false ^
     -e LOG_CHANNEL=stderr ^
@@ -181,7 +181,7 @@ set RETRY_COUNT=0
 :health_check_loop
 set /a RETRY_COUNT+=1
 ping -n 4 127.0.0.1 >nul 2>&1
-docker exec %CONTAINER_NAME% curl -s -o /dev/null -w "%%{http_code}" http://localhost:8080/up >temp_http.txt 2>nul
+docker exec %CONTAINER_NAME% curl -s -o /dev/null -w "%%{http_code}" http://127.0.0.1:8080/up >temp_http.txt 2>nul
 if exist temp_http.txt (
     set /p HTTP_CODE=<temp_http.txt
     del temp_http.txt
@@ -260,8 +260,8 @@ echo ============================================================
 call :log "Local Dev Deployment Complete!"
 echo   Container:  %CONTAINER_NAME%
 echo   Image:      %REGISTRY%/%IMAGE_NAME%:%IMAGE_TAG%
-echo   Local URL:  http://localhost:%LOCAL_PORT%
-echo   Status:     http://localhost:%LOCAL_PORT%/up
+echo   Local URL:  http://127.0.0.1:%LOCAL_PORT%
+echo   Status:     http://127.0.0.1:%LOCAL_PORT%/up
 echo   Docker:     docker logs -f %CONTAINER_NAME%
 echo   Total time: !TOTAL_S! seconds
 echo ============================================================
