@@ -7,9 +7,9 @@ pipeline {
                 withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
                     script {
                         if (isUnix()) {
-                            sh 'bash jenkins-local-deploy.bat'
+                            sh 'bash "${WORKSPACE}/jenkins-local-deploy.sh"'
                         } else {
-                            bat 'call jenkins-local-deploy.bat'
+                            bat 'call "%WORKSPACE%\\jenkins-local-deploy.bat"'
                         }
                     }
                 }

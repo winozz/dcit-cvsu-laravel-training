@@ -53,6 +53,8 @@ REM Use GitHub token (set via Jenkins credentials)
 if not defined GITHUB_TOKEN (
     echo ERROR: GITHUB_TOKEN is not defined. Configure Jenkins credentials with ID github-token or set the environment variable.
     exit /b 1
+) else (
+    call :log "GITHUB_TOKEN is defined and available"
 )
 
 REM === Parameterized configuration (set per developer) ===
@@ -65,6 +67,14 @@ echo ============================================================
 echo  Jenkins Local Dev Deploy - Laravel PHP Project
 echo ============================================================
 call :log "Deploy started"
+
+REM Check if docker is available
+docker --version >nul 2>&1
+if errorlevel 1 (
+    call :log "ERROR: Docker is not installed or not in PATH"
+    exit /b 1
+)
+call :log "Docker is available"
 echo.
 call :log "=== Parameters ==="
 echo   IMAGE_TAG:      %IMAGE_TAG%
@@ -97,10 +107,11 @@ call :log "[2/4] Pulling image %REGISTRY%/%IMAGE_NAME%:%IMAGE_TAG%..."
 call :log "Pulling... (this can take 2-10 min on first pull, ~10s if up to date)"
 docker pull --platform linux/amd64 %REGISTRY%/%IMAGE_NAME%:%IMAGE_TAG%
 if errorlevel 1 (
-    call :log "WARNING: Pull failed - checking for cached image..."
+    call :log "WARNING: Pull failed with error code %errorlevel% - checking for cached image..."
     docker image inspect %REGISTRY%/%IMAGE_NAME%:%IMAGE_TAG% >nul 2>&1
     if errorlevel 1 (
         call :log "ERROR: No cached image available and pull failed!"
+        call :log "Docker error details - ensure docker daemon is running and GITHUB_TOKEN has read:packages permission"
         exit /b 1
     )
     call :log "Using cached image."
@@ -123,8 +134,8 @@ REM ---------------------------------------------------------------
 call :log "[3/4] Cleaning up existing container..."
 
 call :log "Stopping container %CONTAINER_NAME% if running..."
-docker stop %CONTAINER_NAME% 2>nul || true
-docker rm %CONTAINER_NAME% 2>nul || true
+docker stop %CONTAINER_NAME% >nul 2>&1
+docker rm %CONTAINER_NAME% >nul 2>&1
 call :log "Old container removed."
 echo.
 
@@ -150,12 +161,18 @@ echo.
 
 REM --- Wait for container to be ready ---
 call :log "Waiting 10 seconds for application to start..."
-timeout /t 10 /nobreak
+for /l %%A in (1,1,10) do (
+    ping -n 2 127.0.0.1 >nul 2>&1
+)
 
 REM --- Health check ---
 call :log "Running health check on port %LOCAL_PORT%..."
 set HTTP_CODE=000
-for /f "tokens=*" %%h in ('docker exec %CONTAINER_NAME% curl -s -o /dev/null -w "%%{http_code}" http://localhost:8080/up 2^>nul') do set HTTP_CODE=%%h
+docker exec %CONTAINER_NAME% curl -s -o nul -w "%%{http_code}" http://localhost:8080/up >temp_http.txt 2>&1
+if exist temp_http.txt (
+    set /p HTTP_CODE=<temp_http.txt
+    del temp_http.txt
+)
 if "%HTTP_CODE%"=="200" (
     call :log "Health check PASSED (HTTP %HTTP_CODE%)"
 ) else (
@@ -224,3 +241,4 @@ echo   docker rm %CONTAINER_NAME%
 echo.
 call :log "✅ Ready for testing!"
 echo ============================================================
+exit /b 0
