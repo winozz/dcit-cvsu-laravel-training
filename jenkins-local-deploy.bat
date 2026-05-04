@@ -250,10 +250,27 @@ set "CF_HOME=%WORKSPACE%\.cf-home"
 mkdir "!CF_HOME!\.cloudflared" 2>nul
 (echo no-autoupdate: true) > "!CF_HOME!\.cloudflared\config.yml"
 
-REM Create an empty dummy cert file. cloudflared 2025.x checks that the path
-REM in TUNNEL_ORIGIN_CERT exists as a readable file; for quick tunnels the
-REM contents are never actually used, so an empty file is sufficient.
-type nul > "!CF_HOME!\.cloudflared\dummy-cert.pem"
+REM Create a syntactically valid PEM file. cloudflared 2025.x parses the cert
+REM file even for quick tunnels, but doesn't validate the cert contents — so
+REM any well-formed PEM block satisfies the parser. The cert is never used
+REM for trycloudflare.com tunnels (which authenticate via the public API).
+set "DUMMY_CERT=!CF_HOME!\.cloudflared\dummy-cert.pem"
+(
+    echo -----BEGIN CERTIFICATE-----
+    echo MIICKjCCAY+gAwIBAgIJALhXl6lTOMi/MA0GCSqGSIb3DQEBCwUAMC0xCzAJBgNV
+    echo BAYTAkdCMQ4wDAYDVQQKDAVTdGFjazEOMAwGA1UEAwwFRHVtbXkwHhcNMTcxMDIz
+    echo MTU1MjA5WhcNMTcxMTIyMTU1MjA5WjAtMQswCQYDVQQGEwJHQjEOMAwGA1UECgwF
+    echo U3RhY2sxDjAMBgNVBAMMBUR1bW15MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKB
+    echo gQC8R37VNEZ5xeI+RmK9XGPwpHTo0zWANQA9zpKYrCsX9jWpIbyOyZprEmrGu0kY
+    echo zTNdU+L0rGo7SdYi0YFBEPMP41gP5UVc4S5MOuAn3FqJZWO8Ib4LNDaC0fYnPq77
+    echo HvxNCjy3jKyJa9Eh/H3LZHqHEeBrx3wSrLk6wtUXz1Wf3wIDAQABo1AwTjAdBgNV
+    echo HQ4EFgQUGgkjchVUbsqkXjF4qQqNa3XFErgwHwYDVR0jBBgwFoAUGgkjchVUbsqk
+    echo XjF4qQqNa3XFErgwDAYDVR0TBAUwAwEB/zANBgkqhkiG9w0BAQsFAAOBgQA1YeQc
+    echo DqTwnMd+KKFtuVJfLs3JbfNuQEsb2uBg9JESFG+CwLHhc44/h+e3cVvE9GYWZmGl
+    echo Iw3Ms5xQqvBQHHM4xVGu8EU6GTSUO0xq/zuptL3kiBIpjW8PpxpEMnJCM9c0wUUE
+    echo zHZdz0DOBrHJoSJVRoOT9/BTUGcCXYWH4Cn3qg==
+    echo -----END CERTIFICATE-----
+) > "!DUMMY_CERT!"
 
 REM NOTE: cloudflared writes ALL output (log lines, tunnel URL) to STDERR, not stdout.
 REM      We therefore redirect stderr -> cloudflared-tunnel.log (the file polled below)
