@@ -244,6 +244,7 @@ call :log "  Tunnel URL will appear in: %WORKSPACE%\cloudflared-tunnel.log"
 REM Delete old logs so we don't read stale URLs
 if exist "%WORKSPACE%\cloudflared-tunnel.log" del "%WORKSPACE%\cloudflared-tunnel.log"
 if exist "%WORKSPACE%\cloudflared-tunnel-err.log" del "%WORKSPACE%\cloudflared-tunnel-err.log"
+if exist "%WORKSPACE%\cloudflared-launcher.log" del "%WORKSPACE%\cloudflared-launcher.log"
 
 REM Create an isolated home directory for cloudflared so the Jenkins SYSTEM user's
 REM ~/.cloudflared/config.yml (which may contain a 'tunnel:' key for a named tunnel)
@@ -258,10 +259,11 @@ if exist "!CF_HOME!" rmdir /s /q "!CF_HOME!"
 mkdir "!CF_HOME!" 2>nul
 
 REM NOTE: cloudflared writes ALL output (log lines, tunnel URL) to STDERR, not stdout.
-REM      We generate a one-shot launcher .bat that scrubs the env and runs cloudflared
-REM      with redirection. Going through a separate .bat avoids the nested-quoting hell
-REM      of `start /B cmd /c "..."`, which silently drops redirection when paths/args
-REM      contain quotes or spaces.
+REM      We generate a one-shot launcher .ps1 that scrubs the env and starts
+REM      cloudflared directly via Start-Process with stdout/stderr redirected
+REM      to files. This avoids Jenkins keeping the build open on inherited
+REM      handles and avoids ProcessTreeKiller killing the tunnel at the end
+REM      of the build step.
 REM
 REM      Env scrub: Jenkins SYSTEM may have TUNNEL_ORIGIN_CERT / TUNNEL_CONFIG set
 REM      machine-wide from prior debugging commits — those force named-tunnel mode and
@@ -271,20 +273,31 @@ REM      Critical: do NOT create or pass a config.yml for quick tunnels. Cloudfl
 REM      docs explicitly state TryCloudflare is unsupported when a config file is present
 REM      in .cloudflared. The isolated home above is enough to avoid any SYSTEM-level
 REM      named-tunnel config without forcing cloudflared into locally-managed mode.
-set "TUNNEL_LAUNCHER=%WORKSPACE%\cloudflared-launch.bat"
-> "%TUNNEL_LAUNCHER%" echo @echo off
->> "%TUNNEL_LAUNCHER%" echo for /f "tokens=1 delims==" %%%%V in ('set TUNNEL_ 2^^^>nul') do set "%%%%V="
->> "%TUNNEL_LAUNCHER%" echo set "USERPROFILE=!CF_HOME!"
->> "%TUNNEL_LAUNCHER%" echo set "HOME=!CF_HOME!"
->> "%TUNNEL_LAUNCHER%" echo ^> "%WORKSPACE%\cloudflared-tunnel.log" echo === LAUNCHER ENV DEBUG ===
->> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo CLOUDFLARED_CMD=!CLOUDFLARED_CMD!
->> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo USERPROFILE=%%USERPROFILE%%
->> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" set TUNNEL_ 2^>nul
->> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo CONFIG_DIR=!CF_CONFIG_DIR!
->> "%TUNNEL_LAUNCHER%" echo ^>^> "%WORKSPACE%\cloudflared-tunnel.log" echo === END DEBUG ===
->> "%TUNNEL_LAUNCHER%" echo "!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate ^>^> "%WORKSPACE%\cloudflared-tunnel.log" 2^>^&1
+set "TUNNEL_LAUNCHER=%WORKSPACE%\cloudflared-launch.ps1"
+> "%TUNNEL_LAUNCHER%" echo Get-ChildItem Env:TUNNEL_* -ErrorAction SilentlyContinue ^| Remove-Item -Force -ErrorAction SilentlyContinue
+>> "%TUNNEL_LAUNCHER%" echo $env:BUILD_ID = 'dontKillMe'
+>> "%TUNNEL_LAUNCHER%" echo $env:JENKINS_NODE_COOKIE = 'dontKillMe'
+>> "%TUNNEL_LAUNCHER%" echo $env:USERPROFILE = '!CF_HOME!'
+>> "%TUNNEL_LAUNCHER%" echo $env:HOME = '!CF_HOME!'
+>> "%TUNNEL_LAUNCHER%" echo $logPath = '%WORKSPACE%\cloudflared-tunnel.log'
+>> "%TUNNEL_LAUNCHER%" echo $outPath = '%WORKSPACE%\cloudflared-tunnel-err.log'
+>> "%TUNNEL_LAUNCHER%" echo $debugPath = '%WORKSPACE%\cloudflared-launcher.log'
+>> "%TUNNEL_LAUNCHER%" echo Set-Content -Path $debugPath -Value '=== LAUNCHER ENV DEBUG ==='
+>> "%TUNNEL_LAUNCHER%" echo Add-Content -Path $debugPath -Value ('CLOUDFLARED_CMD=!CLOUDFLARED_CMD!')
+>> "%TUNNEL_LAUNCHER%" echo Add-Content -Path $debugPath -Value ('BUILD_ID=' + $env:BUILD_ID)
+>> "%TUNNEL_LAUNCHER%" echo Add-Content -Path $debugPath -Value ('JENKINS_NODE_COOKIE=' + $env:JENKINS_NODE_COOKIE)
+>> "%TUNNEL_LAUNCHER%" echo Add-Content -Path $debugPath -Value ('USERPROFILE=' + $env:USERPROFILE)
+>> "%TUNNEL_LAUNCHER%" echo $tunnelVars = Get-ChildItem Env:TUNNEL_* -ErrorAction SilentlyContinue
+>> "%TUNNEL_LAUNCHER%" echo if ($tunnelVars) { $tunnelVars ^| Sort-Object Name ^| ForEach-Object { Add-Content -Path $debugPath -Value ($_.Name + '=' + $_.Value) } } else { Add-Content -Path $debugPath -Value 'TUNNEL_VARS=[]' }
+>> "%TUNNEL_LAUNCHER%" echo Add-Content -Path $debugPath -Value ('CONFIG_DIR=!CF_CONFIG_DIR!')
+>> "%TUNNEL_LAUNCHER%" echo Add-Content -Path $debugPath -Value '=== END DEBUG ==='
+>> "%TUNNEL_LAUNCHER%" echo Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate') -WorkingDirectory '%WORKSPACE%' -RedirectStandardError $logPath -RedirectStandardOutput $outPath -WindowStyle Hidden ^| Out-Null
 
-start "cloudflared-tunnel" /B "%TUNNEL_LAUNCHER%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%TUNNEL_LAUNCHER%"
+if errorlevel 1 (
+    call :log "WARNING: Failed to start detached cloudflared launcher - skipping tunnel"
+    goto :skip_tunnel
+)
 
 REM Poll log file for tunnel URL (up to 30 seconds)
 call :log "Waiting for tunnel URL..."
@@ -299,6 +312,10 @@ if defined TUNNEL_URL (
 )
 if !TUNNEL_WAIT! geq 30 (
     call :log "WARNING: Tunnel URL not found after 30 seconds"
+    if exist "%WORKSPACE%\cloudflared-launcher.log" (
+        call :log "launcher debug log:"
+        type "%WORKSPACE%\cloudflared-launcher.log"
+    )
     if exist "%WORKSPACE%\cloudflared-tunnel.log" (
         call :log "cloudflared log:"
         type "%WORKSPACE%\cloudflared-tunnel.log"
