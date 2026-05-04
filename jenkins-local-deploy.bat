@@ -242,10 +242,11 @@ call :log "Cloudflare tunnel starting..."
 call :log "  Access at: https://[tunnel-id].trycloudflare.com"
 echo.
 
-REM Start tunnel in background so build doesn't hang
-start "Cloudflare Tunnel" /B "!CLOUDFLARED_CMD!" tunnel --url http://localhost:%LOCAL_PORT%
+REM Start quick tunnel in background (trycloudflare.com - no account needed)
+start "Cloudflare Tunnel" /B "!CLOUDFLARED_CMD!" --no-autoupdate tunnel --url http://localhost:%LOCAL_PORT%
 call :log "Cloudflare tunnel started in background"
-call :log "  Check tunnel URL: docker logs or run cloudflared manually for the trycloudflare.com URL"
+call :log "  Tunnel URL will appear in process output (search for trycloudflare.com)"
+call :log "  To view: tasklist | findstr cloudflared"
 
 :skip_tunnel
 
