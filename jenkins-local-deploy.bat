@@ -144,19 +144,12 @@ REM  STEP 4/4: Run container locally with port mapping
 REM ---------------------------------------------------------------
 call :log "[4/4] Running container on port %LOCAL_PORT%..."
 
-REM Ensure .env exists (copy from .env.example if missing)
-if not exist "%WORKSPACE%\.env" (
-    if exist "%WORKSPACE%\.env.example" (
-        call :log "Creating .env from .env.example..."
-        copy "%WORKSPACE%\.env.example" "%WORKSPACE%\.env" >nul
-    )
-)
-
-call :log "Starting container with workspace mounted at /var/www/html..."
+call :log "Starting container..."
 docker run -d --name %CONTAINER_NAME% ^
     -p %LOCAL_PORT%:8080 ^
-    -v "%WORKSPACE%:/var/www/html" ^
     -e APP_URL=http://localhost:%LOCAL_PORT% ^
+    -e APP_ENV=local ^
+    -e APP_DEBUG=true ^
     -e HEALTHCHECK_PATH=/up ^
     %REGISTRY%/%IMAGE_NAME%:%IMAGE_TAG%
 
@@ -167,17 +160,6 @@ if errorlevel 1 (
 
 call :log "Container started: %CONTAINER_NAME%"
 echo.
-
-REM --- Wait for composer install to complete (entrypoint runs it on first start) ---
-call :log "Waiting for Laravel dependencies to install (composer install)..."
-for /l %%A in (1,1,15) do (
-    ping -n 4 127.0.0.1 >nul 2>&1
-)
-
-REM --- Generate APP_KEY if needed ---
-call :log "Generating Laravel APP_KEY if not set..."
-docker exec %CONTAINER_NAME% php artisan key:generate --force >nul 2>&1
-docker exec %CONTAINER_NAME% php artisan config:clear >nul 2>&1
 
 REM --- Wait for container to be ready ---
 call :log "Waiting for Laravel application to start (up to 60 seconds)..."
