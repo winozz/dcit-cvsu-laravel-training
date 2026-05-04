@@ -59,7 +59,7 @@ if not defined GITHUB_TOKEN (
 
 REM === Parameterized configuration (set per developer) ===
 if not defined IMAGE_TAG set IMAGE_TAG=latest
-if not defined LOCAL_PORT set LOCAL_PORT=8080
+if not defined LOCAL_PORT set LOCAL_PORT=9090
 if not defined CONTAINER_NAME set CONTAINER_NAME=laravel-dev
 if not defined TUNNEL_NAME set TUNNEL_NAME=laravel-tunnel
 
@@ -160,24 +160,30 @@ call :log "Container started: %CONTAINER_NAME%"
 echo.
 
 REM --- Wait for container to be ready ---
-call :log "Waiting 10 seconds for application to start..."
-for /l %%A in (1,1,10) do (
-    ping -n 2 127.0.0.1 >nul 2>&1
-)
-
-REM --- Health check ---
-call :log "Running health check on port %LOCAL_PORT%..."
+call :log "Waiting for Laravel application to start (up to 60 seconds)..."
 set HTTP_CODE=000
-docker exec %CONTAINER_NAME% curl -s -o nul -w "%%{http_code}" http://localhost:8080/up >temp_http.txt 2>&1
+set RETRY_COUNT=0
+:health_check_loop
+set /a RETRY_COUNT+=1
+ping -n 4 127.0.0.1 >nul 2>&1
+docker exec %CONTAINER_NAME% curl -s -o /dev/null -w "%%{http_code}" http://localhost:8080/up >temp_http.txt 2>nul
 if exist temp_http.txt (
     set /p HTTP_CODE=<temp_http.txt
     del temp_http.txt
 )
 if "%HTTP_CODE%"=="200" (
-    call :log "Health check PASSED (HTTP %HTTP_CODE%)"
-) else (
-    call :log "WARNING: Health check returned HTTP %HTTP_CODE% - application may not be ready"
+    call :log "Health check PASSED on attempt %RETRY_COUNT% (HTTP %HTTP_CODE%)"
+    goto :health_done
 )
+if %RETRY_COUNT% geq 20 (
+    call :log "WARNING: Health check failed after 20 attempts (HTTP %HTTP_CODE%)"
+    call :log "Container logs (last 20 lines):"
+    docker logs --tail 20 %CONTAINER_NAME%
+    goto :health_done
+)
+call :log "  Attempt %RETRY_COUNT%: HTTP %HTTP_CODE% - retrying..."
+goto :health_check_loop
+:health_done
 echo.
 
 REM --- Show container info ---
@@ -192,12 +198,23 @@ REM ---------------------------------------------------------------
 call :log "[BONUS] Setting up Cloudflare Tunnel for temporary public access..."
 echo.
 
-REM Check if cloudflared is installed
+REM Check if cloudflared is installed, download if not
 where cloudflared >nul 2>&1
 if errorlevel 1 (
-    call :log "WARNING: cloudflared not installed"
-    call :log "  Install from: https://developers.cloudflare.com/cloudflare-one/connections/connect-applications/install-and-setup/installation/"
-    goto :skip_tunnel
+    call :log "cloudflared not found - downloading portable version..."
+    set "CLOUDFLARED_EXE=%WORKSPACE%\cloudflared.exe"
+    if not exist "!CLOUDFLARED_EXE!" (
+        call :log "Downloading cloudflared.exe..."
+        powershell -Command "Invoke-WebRequest -Uri 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe' -OutFile '!CLOUDFLARED_EXE!'"
+        if errorlevel 1 (
+            call :log "WARNING: Failed to download cloudflared - skipping tunnel"
+            goto :skip_tunnel
+        )
+        call :log "cloudflared downloaded successfully"
+    )
+    set "CLOUDFLARED_CMD=!CLOUDFLARED_EXE!"
+) else (
+    set "CLOUDFLARED_CMD=cloudflared"
 )
 
 call :log "Starting Cloudflare quick tunnel..."
@@ -210,7 +227,10 @@ call :log "Cloudflare tunnel starting..."
 call :log "  Access at: https://[tunnel-id].trycloudflare.com"
 echo.
 
-cloudflared tunnel --url http://localhost:%LOCAL_PORT%
+REM Start tunnel in background so build doesn't hang
+start "Cloudflare Tunnel" /B "!CLOUDFLARED_CMD!" tunnel --url http://localhost:%LOCAL_PORT%
+call :log "Cloudflare tunnel started in background"
+call :log "  Check tunnel URL: docker logs or run cloudflared manually for the trycloudflare.com URL"
 
 :skip_tunnel
 
