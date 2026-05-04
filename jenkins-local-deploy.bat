@@ -251,13 +251,28 @@ mkdir "!CF_HOME!\.cloudflared" 2>nul
 (echo no-autoupdate: true) > "!CF_HOME!\.cloudflared\config.yml"
 
 REM NOTE: cloudflared writes ALL output (log lines, tunnel URL) to STDERR, not stdout.
-REM      We therefore redirect stderr -> cloudflared-tunnel.log (the file polled below)
-REM      and stdout -> cloudflared-tunnel-err.log (will be empty; kept for symmetry).
+REM      We launch cloudflared via cmd /c so the shell does the stderr/stdout redirection
+REM      directly on the cloudflared process (file handles are inherited by the child).
 REM
-REM      With an isolated home, quick tunnels succeed without setting origincert.
-REM      If Jenkins inherited TUNNEL_ORIGIN_CERT from elsewhere, remove it first
-REM      so cloudflared does not try to decode an unrelated or empty cert file.
-powershell -NoProfile -Command "Remove-Item Env:TUNNEL_ORIGIN_CERT -ErrorAction SilentlyContinue; $env:USERPROFILE='!CF_HOME!'; $env:HOME='!CF_HOME!'; Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate') -RedirectStandardError '%WORKSPACE%\cloudflared-tunnel.log' -RedirectStandardOutput '%WORKSPACE%\cloudflared-tunnel-err.log' -NoNewWindow -PassThru | Out-Null"
+REM      Critical: Jenkins SYSTEM env may have TUNNEL_ORIGIN_CERT / TUNNEL_CONFIG set
+REM      machine-wide from prior debugging commits — those force named-tunnel mode and
+REM      break --url quick tunnels. We unset them in THIS process before launching, so
+REM      the cmd /c child inherits a clean env. We also point USERPROFILE/HOME at an
+REM      isolated dir so cloudflared cannot read the SYSTEM profile's config.yml.
+set "TUNNEL_ORIGIN_CERT="
+set "TUNNEL_CONFIG="
+set "TUNNEL_TOKEN="
+set "TUNNEL_ID="
+set "ORIG_USERPROFILE=%USERPROFILE%"
+set "ORIG_HOME=%HOME%"
+set "USERPROFILE=!CF_HOME!"
+set "HOME=!CF_HOME!"
+
+start "cloudflared-tunnel" /B cmd /c ""!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate >"%WORKSPACE%\cloudflared-tunnel-err.log" 2>"%WORKSPACE%\cloudflared-tunnel.log""
+
+REM Restore USERPROFILE/HOME for the rest of the script
+set "USERPROFILE=%ORIG_USERPROFILE%"
+set "HOME=%ORIG_HOME%"
 
 REM Poll log file for tunnel URL (up to 30 seconds)
 call :log "Waiting for tunnel URL..."
