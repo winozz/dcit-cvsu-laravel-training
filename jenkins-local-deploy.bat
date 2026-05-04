@@ -291,7 +291,7 @@ set "TUNNEL_LAUNCHER=%WORKSPACE%\cloudflared-launch.ps1"
 >> "%TUNNEL_LAUNCHER%" echo if ($tunnelVars) { $tunnelVars ^| Sort-Object Name ^| ForEach-Object { Add-Content -Path $debugPath -Value ($_.Name + '=' + $_.Value) } } else { Add-Content -Path $debugPath -Value 'TUNNEL_VARS=[]' }
 >> "%TUNNEL_LAUNCHER%" echo Add-Content -Path $debugPath -Value ('CONFIG_DIR=!CF_CONFIG_DIR!')
 >> "%TUNNEL_LAUNCHER%" echo Add-Content -Path $debugPath -Value '=== END DEBUG ==='
->> "%TUNNEL_LAUNCHER%" echo Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate') -WorkingDirectory '%WORKSPACE%' -RedirectStandardError $logPath -RedirectStandardOutput $outPath -WindowStyle Hidden ^| Out-Null
+>> "%TUNNEL_LAUNCHER%" echo Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate','--protocol','http2') -WorkingDirectory '%WORKSPACE%' -RedirectStandardError $logPath -RedirectStandardOutput $outPath -WindowStyle Hidden ^| Out-Null
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%TUNNEL_LAUNCHER%"
 if errorlevel 1 (
