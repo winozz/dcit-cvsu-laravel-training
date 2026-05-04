@@ -239,8 +239,12 @@ taskkill /F /IM cloudflared.exe >nul 2>&1
 call :log "Starting Cloudflare quick tunnel (trycloudflare.com - no account needed)..."
 call :log "  Tunnel URL will appear in: %WORKSPACE%\cloudflared-tunnel.log"
 
+REM Override home dir so cloudflared ignores any system-level named tunnel config
+set "USERPROFILE=%WORKSPACE%"
+set "HOME=%WORKSPACE%"
+
 REM Run in background, write output to log file so URL is capturable
-start "Cloudflare Tunnel" /B cmd /c ""!CLOUDFLARED_CMD!" --config nul tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate > "%WORKSPACE%\cloudflared-tunnel.log" 2>&1"
+start "Cloudflare Tunnel" /B cmd /c "set USERPROFILE=%WORKSPACE%& set HOME=%WORKSPACE%& "!CLOUDFLARED_CMD!" tunnel --url http://127.0.0.1:%LOCAL_PORT% --no-autoupdate > "%WORKSPACE%\cloudflared-tunnel.log" 2>&1"
 
 REM Wait a few seconds then extract the tunnel URL from the log
 ping -n 6 127.0.0.1 >nul 2>&1
