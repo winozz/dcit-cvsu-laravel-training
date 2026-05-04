@@ -235,16 +235,8 @@ REM Print version so we can confirm which binary is actually running
 call :log "cloudflared version:"
 "!CLOUDFLARED_CMD!" --version 2>&1
 
-REM Kill any existing tunnel so we get a fresh URL
-taskkill /F /IM cloudflared.exe >nul 2>&1
-
 call :log "Starting Cloudflare quick tunnel (trycloudflare.com - no account needed)..."
 call :log "  Tunnel URL will appear in: %WORKSPACE%\cloudflared-tunnel.log"
-
-REM Delete old logs so we don't read stale URLs
-if exist "%WORKSPACE%\cloudflared-tunnel.log" del "%WORKSPACE%\cloudflared-tunnel.log"
-if exist "%WORKSPACE%\cloudflared-tunnel-err.log" del "%WORKSPACE%\cloudflared-tunnel-err.log"
-if exist "%WORKSPACE%\cloudflared-launcher.log" del "%WORKSPACE%\cloudflared-launcher.log"
 
 REM Create an isolated home directory for cloudflared so the Jenkins SYSTEM user's
 REM ~/.cloudflared/config.yml (which may contain a 'tunnel:' key for a named tunnel)
@@ -293,16 +285,30 @@ set "TUNNEL_LAUNCHER=%WORKSPACE%\cloudflared-launch.ps1"
 >> "%TUNNEL_LAUNCHER%" echo Add-Content -Path $debugPath -Value '=== END DEBUG ==='
 >> "%TUNNEL_LAUNCHER%" echo Start-Process -FilePath '!CLOUDFLARED_CMD!' -ArgumentList @('tunnel','--url','http://127.0.0.1:%LOCAL_PORT%','--no-autoupdate','--protocol','http2') -WorkingDirectory '%WORKSPACE%' -RedirectStandardError $logPath -RedirectStandardOutput $outPath -WindowStyle Hidden ^| Out-Null
 
+set "MAX_TUNNEL_ATTEMPTS=3"
+set "TUNNEL_ATTEMPT=0"
+:start_tunnel_attempt
+set /a TUNNEL_ATTEMPT+=1
+set "TUNNEL_URL="
+set "TUNNEL_TRANSIENT_ERROR="
+set "TUNNEL_WAIT=0"
+
+REM Kill any existing tunnel so we get a fresh URL for this attempt
+taskkill /F /IM cloudflared.exe >nul 2>&1
+
+REM Delete old logs so we only inspect the current attempt
+if exist "%WORKSPACE%\cloudflared-tunnel.log" del "%WORKSPACE%\cloudflared-tunnel.log"
+if exist "%WORKSPACE%\cloudflared-tunnel-err.log" del "%WORKSPACE%\cloudflared-tunnel-err.log"
+if exist "%WORKSPACE%\cloudflared-launcher.log" del "%WORKSPACE%\cloudflared-launcher.log"
+
 powershell -NoProfile -ExecutionPolicy Bypass -File "%TUNNEL_LAUNCHER%"
 if errorlevel 1 (
     call :log "WARNING: Failed to start detached cloudflared launcher - skipping tunnel"
     goto :skip_tunnel
 )
 
-REM Poll log file for tunnel URL (up to 30 seconds)
-call :log "Waiting for tunnel URL..."
-set TUNNEL_URL=
-set TUNNEL_WAIT=0
+REM Poll log file for tunnel URL (up to 30 seconds per attempt)
+call :log "Waiting for tunnel URL (attempt !TUNNEL_ATTEMPT!/!MAX_TUNNEL_ATTEMPTS!)..."
 :tunnel_wait_loop
 ping -n 3 127.0.0.1 >nul 2>&1
 set /a TUNNEL_WAIT+=3
@@ -310,8 +316,23 @@ for /f "usebackq delims=" %%X in (`powershell -NoProfile -Command "$match = Sele
 if defined TUNNEL_URL (
     goto :tunnel_found
 )
+for /f "delims=" %%E in ('findstr /i /c:"Error unmarshaling QuickTunnel response" /c:"failed to unmarshal quick Tunnel" "%WORKSPACE%\cloudflared-tunnel.log" 2^>nul') do set "TUNNEL_TRANSIENT_ERROR=%%E"
+if defined TUNNEL_TRANSIENT_ERROR (
+    if !TUNNEL_ATTEMPT! lss !MAX_TUNNEL_ATTEMPTS! (
+        call :log "WARNING: Cloudflare quick tunnel API returned a transient error on attempt !TUNNEL_ATTEMPT! - retrying..."
+        ping -n 3 127.0.0.1 >nul 2>&1
+        goto :start_tunnel_attempt
+    )
+    call :log "WARNING: Cloudflare quick tunnel API kept returning a transient error after !MAX_TUNNEL_ATTEMPTS! attempts"
+    goto :tunnel_failed
+)
 if !TUNNEL_WAIT! geq 30 (
     call :log "WARNING: Tunnel URL not found after 30 seconds"
+    goto :tunnel_failed
+)
+goto :tunnel_wait_loop
+
+:tunnel_failed
     if exist "%WORKSPACE%\cloudflared-launcher.log" (
         call :log "launcher debug log:"
         type "%WORKSPACE%\cloudflared-launcher.log"
@@ -321,8 +342,6 @@ if !TUNNEL_WAIT! geq 30 (
         type "%WORKSPACE%\cloudflared-tunnel.log"
     )
     goto :skip_tunnel
-)
-goto :tunnel_wait_loop
 
 :tunnel_found
 echo.
