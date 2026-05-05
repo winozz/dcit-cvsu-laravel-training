@@ -1,0 +1,111 @@
+// Persistent Jenkins tunnel job.
+// Run this pipeline to expose Jenkins (port 8081) to your team via a public URL.
+// The build stays running while the tunnel is active.
+// To stop the tunnel: click "Abort" in the Jenkins UI.
+pipeline {
+    agent any
+
+    parameters {
+        choice(
+            name: 'TUNNEL_TYPE',
+            choices: ['ssh', 'cloudflare'],
+            description: 'ssh = localhost.run (no install), cloudflare = trycloudflare.com'
+        )
+        string(
+            name: 'KEEP_ALIVE_MINUTES',
+            defaultValue: '480',
+            description: 'How many minutes to keep the tunnel alive (default 8 hours). Abort the build early to stop sooner.'
+        )
+    }
+
+    stages {
+        stage('Start Tunnel') {
+            steps {
+                bat '''
+                    setlocal enabledelayedexpansion
+                    set "JLOG=%WORKSPACE%\\jenkins-tunnel.err"
+                    set "JOUT=%WORKSPACE%\\jenkins-tunnel.out"
+                    if exist "%JLOG%" del "%JLOG%"
+                    if exist "%JOUT%" del "%JOUT%"
+
+                    where ssh >nul 2>&1
+                    if errorlevel 1 ( echo ERROR: ssh.exe not found & exit /b 1 )
+
+                    if /i "%TUNNEL_TYPE%"=="ssh" (
+                        echo Starting SSH tunnel for Jenkins on port 8081...
+                        powershell -NoProfile -Command "Start-Process -FilePath 'ssh' -ArgumentList @('-o','StrictHostKeyChecking=no','-o','ServerAliveInterval=30','-o','ExitOnForwardFailure=yes','-R','80:127.0.0.1:8081','nokey@localhost.run') -RedirectStandardOutput '%JOUT%' -RedirectStandardError '%JLOG%' -WindowStyle Hidden | Out-Null"
+                    )
+
+                    if /i "%TUNNEL_TYPE%"=="cloudflare" (
+                        where cloudflared >nul 2>&1
+                        if errorlevel 1 ( echo ERROR: cloudflared.exe not found. Download from https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/ & exit /b 1 )
+                        echo Starting Cloudflare tunnel for Jenkins on port 8081...
+                        powershell -NoProfile -Command "Start-Process -FilePath 'cloudflared' -ArgumentList @('tunnel','--url','http://127.0.0.1:8081') -RedirectStandardOutput '%JOUT%' -RedirectStandardError '%JLOG%' -WindowStyle Hidden | Out-Null"
+                    )
+
+                    echo Waiting for tunnel URL...
+                    set WAIT=0
+                    set JURL=
+                    :url_loop
+                    ping -n 3 127.0.0.1 >nul 2>&1
+                    set /a WAIT+=3
+
+                    if /i "%TUNNEL_TYPE%"=="ssh" (
+                        for /f "usebackq delims=" %%X in (`powershell -NoProfile -Command "if (Test-Path '%JLOG%') { $m = Select-String '%JLOG%' -Pattern 'https://\\S+\\.lhr\\.life' | Select-Object -Last 1; if ($m) { [regex]::Match($m.Line,'https://\\S+\\.lhr\\.life').Value } }"`) do set JURL=%%X
+                    )
+                    if /i "%TUNNEL_TYPE%"=="cloudflare" (
+                        for /f "usebackq delims=" %%X in (`powershell -NoProfile -Command "if (Test-Path '%JLOG%') { $m = Select-String '%JLOG%' -Pattern 'https://\\S+\\.trycloudflare\\.com' | Select-Object -Last 1; if ($m) { [regex]::Match($m.Line,'https://\\S+\\.trycloudflare\\.com').Value } }"`) do set JURL=%%X
+                    )
+
+                    if defined JURL goto :url_ready
+                    if %WAIT% geq 45 ( echo ERROR: Could not get tunnel URL after 45s & if exist "%JLOG%" type "%JLOG%" & exit /b 1 )
+                    goto :url_loop
+
+                    :url_ready
+                    echo.
+                    echo ============================================================
+                    echo   Jenkins is now publicly accessible at:
+                    echo.
+                    echo   %JURL%
+                    echo.
+                    echo   Share this URL with your team.
+                    echo   Abort this build to stop the tunnel.
+                    echo ============================================================
+                '''
+            }
+        }
+
+        stage('Keep Alive') {
+            steps {
+                bat '''
+                    setlocal enabledelayedexpansion
+                    set /a TOTAL_SECONDS=%KEEP_ALIVE_MINUTES% * 60
+                    set ELAPSED=0
+                    echo Tunnel is running. Keeping alive for %KEEP_ALIVE_MINUTES% minutes...
+                    echo Abort this build at any time to stop the tunnel.
+                    :ka_loop
+                    ping -n 31 127.0.0.1 >nul 2>&1
+                    set /a ELAPSED+=30
+                    set /a REMAINING=%TOTAL_SECONDS% - %ELAPSED%
+                    set /a REMAINING_MIN=%REMAINING% / 60
+                    echo [!ELAPSED!s elapsed] Tunnel still running — !REMAINING_MIN! min remaining
+                    if !ELAPSED! geq !TOTAL_SECONDS! goto :ka_done
+                    goto :ka_loop
+                    :ka_done
+                    echo Tunnel keep-alive period ended. Build finishing.
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            bat '''
+                echo Stopping SSH tunnel processes...
+                taskkill /f /im ssh.exe >nul 2>&1
+                taskkill /f /im cloudflared.exe >nul 2>&1
+                echo Tunnel stopped.
+            '''
+        }
+    }
+}
