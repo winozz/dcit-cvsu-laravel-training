@@ -51,7 +51,7 @@ pipeline {
                     set /a WAIT+=3
 
                     if /i "%TUNNEL_TYPE%"=="ssh" (
-                        for /f "usebackq delims=" %%X in (`powershell -NoProfile -Command "if (Test-Path '%JLOG%') { $m = Select-String '%JLOG%' -Pattern 'https://\\S+\\.lhr\\.life' | Select-Object -Last 1; if ($m) { [regex]::Match($m.Line,'https://\\S+\\.lhr\\.life').Value } }"`) do set JURL=%%X
+                        for /f "usebackq delims=" %%X in (`powershell -NoProfile -Command "if (Test-Path '%JOUT%') { $m = Select-String '%JOUT%' -Pattern 'https://\\S+\\.lhr\\.life' | Select-Object -Last 1; if ($m) { [regex]::Match($m.Line,'https://\\S+\\.lhr\\.life').Value } }"`) do set JURL=%%X
                     )
                     if /i "%TUNNEL_TYPE%"=="cloudflare" (
                         for /f "usebackq delims=" %%X in (`powershell -NoProfile -Command "if (Test-Path '%JLOG%') { $m = Select-String '%JLOG%' -Pattern 'https://\\S+\\.trycloudflare\\.com' | Select-Object -Last 1; if ($m) { [regex]::Match($m.Line,'https://\\S+\\.trycloudflare\\.com').Value } }"`) do set JURL=%%X
