@@ -15,7 +15,7 @@
     stages {
         stage('Pull Image') {
             steps {
-                withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
+                withCredentials([string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')]) {
                     bat '''
                         echo %GITHUB_TOKEN% | docker login ghcr.io -u winozz --password-stdin
                         docker pull --platform linux/amd64 ghcr.io/winozz/dcit-cvsu-laravel-training:%IMAGE_TAG%
@@ -26,11 +26,7 @@
 
         stage('Deploy Container') {
             steps {
-                withCredentials([
-                    string(credentialsId: 'laravel-app-key', variable: 'APP_KEY'),
-                    string(credentialsId: 'google-client-id', variable: 'GOOGLE_CLIENT_ID'),
-                    string(credentialsId: 'google-client-secret', variable: 'GOOGLE_CLIENT_SECRET')
-                ]) {
+                withCredentials([string(credentialsId: 'APP_KEY', variable: 'APP_KEY')]) {
                     bat '''
                         docker rm -f %CONTAINER_NAME% >nul 2>&1
                         docker run -d --name %CONTAINER_NAME% ^
@@ -45,9 +41,6 @@
                             -e QUEUE_CONNECTION=database ^
                             -e CACHE_STORE=database ^
                             -e HEALTHCHECK_PATH=/up ^
-                            -e GOOGLE_CLIENT_ID=%GOOGLE_CLIENT_ID% ^
-                            -e GOOGLE_CLIENT_SECRET=%GOOGLE_CLIENT_SECRET% ^
-                            -e GOOGLE_REDIRECT_URI=http://127.0.0.1:%LOCAL_PORT%/auth/google/callback ^
                             ghcr.io/winozz/dcit-cvsu-laravel-training:%IMAGE_TAG%
                     '''
                 }
