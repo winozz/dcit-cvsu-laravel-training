@@ -1,4 +1,4 @@
-pipeline {
+﻿pipeline {
     agent any
 
     parameters {
@@ -26,7 +26,11 @@ pipeline {
 
         stage('Deploy Container') {
             steps {
-                withCredentials([string(credentialsId: 'laravel-app-key', variable: 'APP_KEY')]) {
+                withCredentials([
+                    string(credentialsId: 'laravel-app-key', variable: 'APP_KEY'),
+                    string(credentialsId: 'google-client-id', variable: 'GOOGLE_CLIENT_ID'),
+                    string(credentialsId: 'google-client-secret', variable: 'GOOGLE_CLIENT_SECRET')
+                ]) {
                     bat '''
                         docker rm -f %CONTAINER_NAME% >nul 2>&1
                         docker run -d --name %CONTAINER_NAME% ^
@@ -41,6 +45,9 @@ pipeline {
                             -e QUEUE_CONNECTION=database ^
                             -e CACHE_STORE=database ^
                             -e HEALTHCHECK_PATH=/up ^
+                            -e GOOGLE_CLIENT_ID=%GOOGLE_CLIENT_ID% ^
+                            -e GOOGLE_CLIENT_SECRET=%GOOGLE_CLIENT_SECRET% ^
+                            -e GOOGLE_REDIRECT_URI=http://127.0.0.1:%LOCAL_PORT%/auth/google/callback ^
                             ghcr.io/winozz/dcit-cvsu-laravel-training:%IMAGE_TAG%
                     '''
                 }
@@ -70,7 +77,7 @@ pipeline {
             steps {
                 bat '''
                     if /i "%TUNNEL_TYPE%"=="none" ( echo Tunnel skipped. & exit /b 0 )
-                    set "TLOG=%WORKSPACE%\ssh-tunnel.log"
+                    set "TLOG=%WORKSPACE%\\ssh-tunnel.log"
                     if exist "%TLOG%" del "%TLOG%"
                     where ssh >nul 2>&1
                     if errorlevel 1 ( echo WARNING: ssh.exe not found - skipping & exit /b 0 )
